@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
+import base64
+import gzip
 
 import pandas as pd
 
 from master_utils import load_master_workbook, master_snapshot, validate_master
 from share_utils import supervisor_share_html
+from snapshot_utils import load_supervisor_snapshot, nodes_of_type
 
 
 HEADER_ROW = 3
@@ -114,6 +118,25 @@ def main():
     # The presentation generator never receives a workbook filename.
     assert arbitrary_filename not in page
     assert ".xlsx" not in page.lower()
+
+    # Published supervisor snapshot must load from the repository without any Excel file.
+    published = load_supervisor_snapshot()
+    assert published is not None
+    tree = published["tree"]
+    assert len(nodes_of_type(tree, "dimension")) == 4
+    assert len(nodes_of_type(tree, "theme")) == 13
+    assert len(nodes_of_type(tree, "cluster")) == 77
+    assert len(nodes_of_type(tree, "code")) == 1277
+    assert len(nodes_of_type(tree, "evidence")) == 0
+    assert len(nodes_of_type(tree, "study")) == 0
+
+    # The committed compact payload itself must not contain source-near fields or workbook references.
+    parts = sorted(Path("supervisor_snapshot_chunks").glob("part*.b64"))
+    assert parts
+    encoded = "".join(p.read_text(encoding="ascii").strip() for p in parts)
+    compact_text = gzip.decompress(base64.b64decode(encoded)).decode("utf-8")
+    for forbidden in [".xlsx", "Meaning_Unit_Verbatim", "Context_Verbatim", "Study_ID", "Evidence_ID"]:
+        assert forbidden not in compact_text, forbidden
 
     # Workbook evolution is data-driven: changing metadata does not require code changes.
     frames2, _ = load_master_workbook(build_workbook(version="v2045.7", decision="DEC-2045"))
