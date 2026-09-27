@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import base64
+import gzip
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -10,6 +12,7 @@ from tree_utils import build_candidate_stage_tree_data
 
 SNAPSHOT_SCHEMA_VERSION = 1
 DEFAULT_SNAPSHOT_PATH = "supervisor_snapshot.json"
+DEFAULT_CHUNK_DIR = "supervisor_snapshot_chunks"
 
 
 def _prune_tree(node: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -74,12 +77,7 @@ def snapshot_bytes(frames: Dict[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
-def load_supervisor_snapshot(path: str | Path = DEFAULT_SNAPSHOT_PATH) -> Dict[str, Any] | None:
-    p = Path(path)
-    if not p.exists():
-        return None
-    with p.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
+def _validate_snapshot(data: Any) -> Dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     if data.get("kind") != "PMM_SUPERVISOR_PRESENTATION_SNAPSHOT":
@@ -91,6 +89,37 @@ def load_supervisor_snapshot(path: str | Path = DEFAULT_SNAPSHOT_PATH) -> Dict[s
     if not isinstance(data.get("snapshot"), dict):
         return None
     return data
+
+
+def load_supervisor_snapshot(
+    path: str | Path = DEFAULT_SNAPSHOT_PATH,
+    chunk_dir: str | Path = DEFAULT_CHUNK_DIR,
+) -> Dict[str, Any] | None:
+    """Load a sanitized snapshot from JSON or compressed chunk files.
+
+    The chunked form is intended for deployed/public presentation builds. It
+    contains only the sanitized snapshot payload, never the original workbook.
+    """
+    p = Path(path)
+    if p.exists():
+        try:
+            with p.open("r", encoding="utf-8") as fh:
+                return _validate_snapshot(json.load(fh))
+        except Exception:
+            return None
+
+    d = Path(chunk_dir)
+    parts = sorted(d.glob("part*.b64")) if d.exists() else []
+    if not parts:
+        return None
+
+    try:
+        encoded = "".join(part.read_text(encoding="ascii").strip() for part in parts)
+        raw = gzip.decompress(base64.b64decode(encoded))
+        data = json.loads(raw.decode("utf-8"))
+        return _validate_snapshot(data)
+    except Exception:
+        return None
 
 
 def walk_tree(node: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
