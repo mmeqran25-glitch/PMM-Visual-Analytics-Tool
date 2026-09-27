@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.7.0
+# PMM Visual Analytics & Presentation Tool v0.7.2
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -61,17 +61,18 @@ Adds:
 - **Stability** recorded audit results
 - **Data Quality** structural traceability checks
 
-## Current-workbook compatibility
+## Workbook compatibility
 
-v0.7 is tested against the current `v12.98_MU_CONTEXT_RESTORATION_DEC398` structure:
-- 80/132 live corpus checkpoint
-- 1427 active FOCs
-- 1277 mapped + 150 Challenged
-- 77 active clusters (63 Stable + 14 Provisional)
-- 13 Stable Themes
-- 4 Stable Candidate Dimensions
+The application is intentionally **version-agnostic**. It is not tied to a specific MASTER filename, version number, decision number, or fixed analytical counts.
 
-These values are not hardcoded; the application recomputes analytical counts from the uploaded workbook and reads the current checkpoint/version from `00_README`.
+At runtime it:
+- reads the workbook that the researcher uploads for that session;
+- validates the required PMM analytical sheets/columns;
+- recomputes live counts and higher-order structure from the uploaded workbook;
+- reads checkpoint/version metadata from `00_README` when available;
+- keeps the original workbook outside the supervisor-facing presentation output.
+
+As the MASTER evolves, upload the latest compatible workbook and the application will rebuild the current view from that file. No application release is required merely because the workbook version number changes.
 
 ## Windows startup
 
