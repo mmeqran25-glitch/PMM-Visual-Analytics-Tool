@@ -43,6 +43,7 @@ from master_utils import (
 from visual_utils import structure_sunburst, dimension_theme_sankey, horizontal_count_bar
 from share_utils import supervisor_share_html
 from snapshot_utils import (
+    build_supervisor_snapshot,
     load_supervisor_snapshot,
     snapshot_bytes,
     nodes_of_type,
@@ -778,10 +779,7 @@ def main():
         )
 
     if display_mode == "Supervisor Preview":
-        package = {
-            "snapshot": snapshot,
-            "tree": __import__("snapshot_utils").build_supervisor_snapshot(frames)["tree"],
-        }
+        package = build_supervisor_snapshot(frames)
         render_published_supervisor(package)
     else:
         render_researcher_mode(frames, snapshot, structure)
