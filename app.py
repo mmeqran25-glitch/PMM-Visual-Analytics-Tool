@@ -41,9 +41,10 @@ from master_utils import (
     current_dimension_evidence_summary,
 )
 from visual_utils import structure_sunburst, dimension_theme_sankey, horizontal_count_bar
+from share_utils import supervisor_share_html
 
 
-APP_VERSION = "v0.7.0"
+APP_VERSION = "v0.7.1"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -506,6 +507,19 @@ def render_data_quality(frames: dict, structure: list):
 
 
 def render_supervisor_mode(frames: dict, snapshot: dict):
+    share_html = supervisor_share_html(frames, snapshot).encode("utf-8")
+    st.download_button(
+        "Download Doctor/Supervisor Share HTML (no Excel)",
+        data=share_html,
+        file_name="PMM_Supervisor_Presentation.html",
+        mime="text/html",
+        help="Creates a self-contained read-only presentation file. The original Excel MASTER is not included.",
+        use_container_width=False,
+    )
+    st.caption(
+        "Safe sharing option: send this HTML file to the supervisor/doctor instead of the Excel MASTER. "
+        "The file is read-only and includes only the presentation evidence rendered by the application."
+    )
     tabs = st.tabs(["Executive Snapshot", "Derivation Tree", "Structure Visuals", "Traceability", "Open Decisions"])
     with tabs[0]:
         render_executive_snapshot(frames, snapshot)
