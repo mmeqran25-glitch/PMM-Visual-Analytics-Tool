@@ -1,0 +1,26 @@
+PMM Research Tool v0.6
+
+SUPERVISOR PRESENTATION MODE
+- Added Dashboard, Derivation Tree, Results & Stability, Traceability, and Open Decisions screens.
+- Added a Display mode switch: Supervisor Presentation / Researcher Analytics.
+- Supervisor screens are read-only and dynamically read the uploaded MASTER workbook.
+
+METRIC / FILTER FIXES
+- Real analytical records are identified by PCL-### / THM-### / DIM-### IDs.
+- STAB40 audit rows and embedded narrative rows are not counted as dimensions.
+- Current SG2 mapped counts exclude withdrawn/historical rows.
+- Fidelity-Pass wording variants are recognized.
+- Cluster coverage uses current Stable/Provisional mappings only.
+- Traceability checks no longer report false duplicate Dimension IDs from embedded audit sections.
+
+STABILITY / SENSITIVITY PRESENTATION
+- Reads STAB40-* rows from 08_Candidate_Dimensions.
+- Extracts the current progression checkpoint when available.
+- Shows structural-status distributions without treating them as validity scores.
+- Shows no-forced-coverage residuals and local sensitivity flags.
+
+TRACEABILITY
+- Added a guided Dimension → Theme → Cluster → FOC → Meaning Unit → Study demonstration.
+- Existing interactive tree and HTML download remain available.
+
+v0.5 functionality retained.

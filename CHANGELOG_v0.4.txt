@@ -1,0 +1,15 @@
+PMM Research Tool v0.4
+
+Added:
+- Doctor View rooted at 08_Candidate_Dimensions
+- Candidate Dimension -> Theme -> named Cluster -> Code -> Evidence -> Study drill-down
+- Full label shown beside every ID (e.g., PCL-038 + cluster name)
+- Candidate-Dimension root option in Code & Evidence Tree
+- Unassigned active themes branch to preserve unresolved SG4 work
+- Study-title lookup when available in MASTER
+- Updated search placeholder and presentation styling
+
+Preserved:
+- Read-only MASTER behavior
+- Existing v0.3 study coding and analytics functions
+- No automatic semantic reclassification or dimension creation

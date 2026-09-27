@@ -1,0 +1,11 @@
+PMM Research Tool v0.5
+
+Doctor View — Flexible THEME presentation
+- Added presentation-scope switch: Candidate-Dimensions overview OR selected THEMEs.
+- Added multi-select for one or more active THEMEs.
+- Added Select All and Clear Selection controls.
+- Added visible catalogue of active themes with status and current selection marker.
+- Added combined selected-theme traceability tree.
+- THM and PCL nodes retain ID + full analytical label.
+- Added selected-theme and included-cluster counts.
+- Read-only safeguard retained; no workbook write-back.

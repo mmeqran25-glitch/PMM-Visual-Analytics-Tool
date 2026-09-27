@@ -1,0 +1,23 @@
+PMM Visual Analytics & Presentation Tool v0.7.0
+
+Workflow redesign agreed with the researcher:
+- Excel MASTER is the only analytical source of truth.
+- Python/Streamlit is now visualization, structural audit, traceability and presentation only.
+- Removed the PDF Study Coding workspace and all in-app coding/export logic.
+- The app never writes analytical decisions back to Excel.
+
+v0.7 analytical/presentation changes:
+- Current checkpoint is read from the latest 00_README instead of relying only on older STAB40 gate prose.
+- Stable Candidate Dimensions are now recognized as the current higher-order structure (v12.98 compatible).
+- Current dimension evidence-breadth tables include Stable dimensions, not just Provisional dimensions.
+- Added SG2 Review page for current Challenged FOCs and Provisional clusters.
+- Added read-only filters for Challenged FOCs using Study and Closest Competing Cluster.
+- Added Theme/Dimension structural summaries.
+- Added interactive Sunburst and Dimension-to-Theme Sankey visuals.
+- Added explicit residual/unassigned presentation (unassigned Themes and unthemed Clusters are never force-fitted).
+- Added Evidence Integrity / 04A_MU_Context_Audit visual review for DEC-398-style workbooks.
+- Added current MU-restoration and FOC-wording-refinement tables.
+- Retained full drill-down: Dimension -> Theme -> Cluster -> FOC -> Meaning Unit -> Study.
+- Retained interactive tree and org-chart HTML export.
+- Retained traceability/data-quality checks and recorded stability-audit display.
+- Fixed dimension-theme mapping to ignore embedded audit/narrative rows that reuse DIM identifiers.

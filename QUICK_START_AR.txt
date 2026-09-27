@@ -1,0 +1,30 @@
+دليل سريع — PMM Visual Analytics & Presentation Tool v0.7.0
+
+الفكرة الأساسية
+- ملف Excel MASTER هو المصدر الوحيد للقرارات التحليلية.
+- التطبيق للعرض والتحليل البصري والتتبع فقط.
+- التطبيق لا يعدل Excel ولا ينقل FOC ولا يدمج/يقسم Cluster أو Theme.
+
+التشغيل على Windows
+1) فك الضغط عن الملف في مجلد عادي.
+2) شغّل setup_and_run_windows.bat.
+3) في أول تشغيل سيُنشئ .venv ويثبت الحزم المطلوبة.
+4) افتح الرابط المحلي الذي يظهر عادة: http://localhost:8501
+5) ارفع أحدث MASTER Excel من الشريط الجانبي.
+
+اختيار وضع العرض
+- Supervisor Presentation: للعرض على الدكتور/المشرف.
+- Researcher Visual Analytics: للمراجعة البصرية التفصيلية أثناء العمل.
+
+أهم الشاشات للمرحلة الحالية
+- SG2 Review: يعرض Challenged FOCs وProvisional Clusters فقط؛ القرار النهائي يبقى في Excel.
+- Themes & Dimensions: يعرض Sunburst وSankey وبنية Theme/Dimension الحالية.
+- Evidence Integrity: يعرض 04A_MU_Context_Audit عند توفره.
+- Derivation Tree: Dimension → Theme → Cluster → FOC → Meaning Unit → Study.
+- Traceability: تتبع حالة واحدة إلى النص الأصلي.
+- Open Decisions: ما بقي غير محسوم دون forced fit.
+
+بعد أي تعديل في Excel
+- احفظ نسخة MASTER جديدة.
+- أعد رفعها في التطبيق.
+- ستتحدث الرسوم والمؤشرات من الملف الجديد.
