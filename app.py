@@ -41,9 +41,10 @@ from master_utils import (
     current_dimension_evidence_summary,
 )
 from visual_utils import structure_sunburst, dimension_theme_sankey, horizontal_count_bar
+from share_utils import supervisor_share_html
 
 
-APP_VERSION = "v0.7.0"
+APP_VERSION = "v0.7.2"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -112,21 +113,26 @@ def render_flow(snapshot: dict):
             pos += 1
 
 
-def render_snapshot_header(snapshot: dict, filename: str):
+def render_snapshot_header(snapshot: dict, filename: str | None = None, show_filename: bool = False):
     st.markdown('<div class="kicker">Excel MASTER → Python visual analytics</div>', unsafe_allow_html=True)
     title = snapshot.get("version") or "Current MASTER"
     decision = snapshot.get("decision")
     st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
-    subtitle = f"Loaded: {filename}"
+
+    parts = []
+    if show_filename and filename:
+        parts.append(f"Loaded: {filename}")
+    if title:
+        parts.append(str(title))
     if decision:
-        subtitle += f" · {title} · {decision}"
-    elif title:
-        subtitle += f" · {title}"
-    st.caption(subtitle)
+        parts.append(str(decision))
+    if parts:
+        st.caption(" · ".join(parts))
+
     st.markdown(
         '<div class="readonly-banner"><b>Read-only rule:</b> Excel MASTER is the only source of truth. '
-        'This application does not code, reassign, merge, split, or write back analytical decisions. '
-        'Python is used only for visualization, structural checks, traceability and presentation.</div>',
+        'This application reads the workbook only for the current analysis session and does not write analytical decisions back to it. '
+        'Supervisor-facing presentation output does not include or expose the original Excel file.</div>',
         unsafe_allow_html=True,
     )
 
@@ -506,6 +512,19 @@ def render_data_quality(frames: dict, structure: list):
 
 
 def render_supervisor_mode(frames: dict, snapshot: dict):
+    share_html = supervisor_share_html(frames, snapshot).encode("utf-8")
+    st.download_button(
+        "Download Doctor/Supervisor Share HTML (no Excel)",
+        data=share_html,
+        file_name="PMM_Supervisor_Presentation.html",
+        mime="text/html",
+        help="Creates a self-contained read-only presentation file. The original Excel MASTER is not included.",
+        use_container_width=False,
+    )
+    st.caption(
+        "Safe sharing option: send this HTML file to the supervisor/doctor instead of the Excel MASTER. "
+        "The file is read-only and includes only the presentation evidence rendered by the application."
+    )
     tabs = st.tabs(["Executive Snapshot", "Derivation Tree", "Structure Visuals", "Traceability", "Open Decisions"])
     with tabs[0]:
         render_executive_snapshot(frames, snapshot)
@@ -582,7 +601,11 @@ def main():
         return
 
     snapshot = master_snapshot(frames)
-    render_snapshot_header(snapshot, master.name)
+    render_snapshot_header(
+        snapshot,
+        master.name,
+        show_filename=(display_mode == "Researcher Visual Analytics"),
+    )
 
     if display_mode == "Supervisor Presentation":
         render_supervisor_mode(frames, snapshot)
