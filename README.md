@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.7.2
+# PMM Visual Analytics & Presentation Tool v0.8.0
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -73,6 +73,23 @@ At runtime it:
 - keeps the original workbook outside the supervisor-facing presentation output.
 
 As the MASTER evolves, upload the latest compatible workbook and the application will rebuild the current view from that file. No application release is required merely because the workbook version number changes.
+
+## Public supervisor vs researcher workflow
+
+The deployed application now separates the two use cases:
+
+- **Default/public link**: supervisor presentation only. No Excel upload control is shown. The app reads a sanitized published snapshot containing Candidate Dimensions, Themes, active Clusters and First-Order Codes.
+- **Researcher workspace**: open the same app with `?view=researcher`. Upload any current compatible MASTER workbook for the current session. The workbook filename/version can change freely.
+
+The published supervisor snapshot intentionally excludes:
+- the original XLSX workbook and workbook filename;
+- Meaning Unit verbatim text and Context verbatim text;
+- Study/source nodes and Evidence IDs;
+- any write-back capability.
+
+Residual active clusters that are not yet assigned to an active Theme remain visible under an explicit **Residual / not force-fitted** branch, so the presentation does not hide unresolved structure or force premature higher-order assignments.
+
+When the MASTER changes, regenerate/publish a new sanitized snapshot. The application code itself does not need to change merely because the workbook filename, version number, decision number, counts or memberships change.
 
 ## Windows startup
 
