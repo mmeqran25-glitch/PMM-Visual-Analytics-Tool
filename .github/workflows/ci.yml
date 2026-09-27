@@ -28,4 +28,6 @@ jobs:
         run: python -m py_compile app.py master_utils.py tree_utils.py visual_utils.py share_utils.py
 
       - name: Run version-agnostic smoke test
+        env:
+          PYTHONPATH: .
         run: python tests/smoke_test.py
