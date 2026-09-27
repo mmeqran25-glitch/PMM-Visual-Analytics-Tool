@@ -4,3 +4,9 @@ __pycache__/
 venv/
 .env
 .streamlit/secrets.toml
+
+# Protect local research/workbook data from accidental commits
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
