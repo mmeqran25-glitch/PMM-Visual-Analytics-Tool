@@ -77,9 +77,133 @@ def snapshot_bytes(frames: Dict[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+def _expand_compact_snapshot(data: Dict[str, Any]) -> Dict[str, Any] | None:
+    if data.get("kind") != "PMM_SUPERVISOR_COMPACT_SNAPSHOT":
+        return None
+    if int(data.get("schema_version", 0) or 0) != 2:
+        return None
+
+    snapshot = data.get("snapshot")
+    dimensions = data.get("dimensions")
+    themes = data.get("themes")
+    clusters = data.get("clusters")
+    if not isinstance(snapshot, dict) or not isinstance(dimensions, list) or not isinstance(themes, list) or not isinstance(clusters, list):
+        return None
+
+    cluster_map = {}
+    for item in clusters:
+        if not isinstance(item, list) or len(item) < 4:
+            continue
+        cid, label, status, codes = item[:4]
+        code_nodes = []
+        for code in codes or []:
+            if not isinstance(code, list) or len(code) < 3:
+                continue
+            code_nodes.append({
+                "type": "code",
+                "id": code[0],
+                "label": code[1],
+                "status": code[2],
+                "meta": {},
+                "children": [],
+            })
+        cluster_map[str(cid)] = {
+            "type": "cluster",
+            "id": cid,
+            "label": label,
+            "status": status,
+            "meta": {},
+            "children": code_nodes,
+        }
+
+    theme_map = {}
+    themed_cluster_ids = set()
+    for item in themes:
+        if not isinstance(item, list) or len(item) < 4:
+            continue
+        tid, label, status, cluster_ids = item[:4]
+        cluster_ids = [str(x) for x in (cluster_ids or [])]
+        themed_cluster_ids.update(cluster_ids)
+        theme_map[str(tid)] = {
+            "type": "theme",
+            "id": tid,
+            "label": label,
+            "status": status,
+            "meta": {},
+            "children": [cluster_map[cid] for cid in cluster_ids if cid in cluster_map],
+        }
+
+    root = {
+        "type": "stage",
+        "id": "08_Candidate_Dimensions",
+        "label": "Candidate Dimensions — current recorded structure",
+        "status": "READ-ONLY CURRENT STRUCTURE",
+        "meta": {},
+        "children": [],
+    }
+
+    assigned_theme_ids = set()
+    for item in dimensions:
+        if not isinstance(item, list) or len(item) < 4:
+            continue
+        did, label, status, theme_ids = item[:4]
+        theme_ids = [str(x) for x in (theme_ids or [])]
+        assigned_theme_ids.update(theme_ids)
+        root["children"].append({
+            "type": "dimension",
+            "id": did,
+            "label": label,
+            "status": status,
+            "meta": {},
+            "children": [theme_map[tid] for tid in theme_ids if tid in theme_map],
+        })
+
+    unassigned_theme_ids = sorted(set(theme_map) - assigned_theme_ids)
+    if unassigned_theme_ids:
+        root["children"].append({
+            "type": "group",
+            "id": "SG4-UNDER-REVIEW",
+            "label": "Active descriptive Themes not yet assigned to a current Dimension",
+            "status": "Under review",
+            "meta": {},
+            "children": [theme_map[tid] for tid in unassigned_theme_ids],
+        })
+
+    unthemed_cluster_ids = sorted(set(cluster_map) - themed_cluster_ids)
+    if unthemed_cluster_ids:
+        root["children"].append({
+            "type": "group",
+            "id": "SG3-UNTHEMED-CLUSTERS",
+            "label": "Active clusters not yet assigned to an active Theme",
+            "status": "Residual / not force-fitted",
+            "meta": {},
+            "children": [cluster_map[cid] for cid in unthemed_cluster_ids],
+        })
+
+    return {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "kind": "PMM_SUPERVISOR_PRESENTATION_SNAPSHOT",
+        "source_policy": {
+            "workbook_included": False,
+            "workbook_filename_included": False,
+            "meaning_units_included": False,
+            "context_verbatim_included": False,
+            "study_nodes_included": False,
+            "lowest_visible_level": "First-Order Code",
+        },
+        "snapshot": snapshot,
+        "tree": root,
+    }
+
+
 def _validate_snapshot(data: Any) -> Dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
+
+    compact = _expand_compact_snapshot(data)
+    if compact is not None:
+        return compact
+
     if data.get("kind") != "PMM_SUPERVISOR_PRESENTATION_SNAPSHOT":
         return None
     if int(data.get("schema_version", 0) or 0) != SNAPSHOT_SCHEMA_VERSION:
