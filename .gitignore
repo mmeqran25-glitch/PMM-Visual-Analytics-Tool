@@ -10,3 +10,6 @@ venv/
 *.xls
 *.xlsm
 *.xlsb
+
+# Protect generated supervisor presentation exports
+PMM_Supervisor_Presentation*.html
