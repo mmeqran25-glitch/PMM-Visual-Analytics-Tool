@@ -232,12 +232,18 @@ def build_dimension_tree_data(frames: Dict[str, pd.DataFrame], dimension_id: str
     return root
 
 
-def build_candidate_stage_tree_data(frames: Dict[str, pd.DataFrame], include_unassigned_themes: bool = True) -> Dict[str, Any]:
+def build_candidate_stage_tree_data(
+    frames: Dict[str, pd.DataFrame],
+    include_unassigned_themes: bool = True,
+    include_unthemed_clusters: bool = True,
+) -> Dict[str, Any]:
     """Build a presentation tree rooted at 08_Candidate_Dimensions.
 
-    The current non-retired Candidate Dimensions are shown exactly as recorded in the
-    workbook, including Stable structures. Any active descriptive Themes not yet assigned
-    to a current Dimension remain under a separate 'under review' branch.
+    Current non-retired Candidate Dimensions are shown exactly as recorded in the
+    workbook. Active Themes not yet assigned to a current Dimension remain under
+    a separate under-review branch. Active clusters not currently assigned to any
+    active Theme are also retained explicitly as residual / not force-fitted
+    material so no current PCL disappears from the whole-structure view.
     """
     dims = active_dimensions(frames)
     themes = active_themes(frames)
@@ -246,8 +252,31 @@ def build_candidate_stage_tree_data(frames: Dict[str, pd.DataFrame], include_una
     for _, r in dims.iterrows():
         assigned_theme_ids.update(split_ids(r.get("Supporting_Theme_IDs"), "THM"))
 
-    active_theme_ids = set(themes.get("Theme_ID", pd.Series(dtype=str)).dropna().astype(str).str.strip()) if not themes.empty else set()
+    active_theme_ids = set(
+        themes.get("Theme_ID", pd.Series(dtype=str)).dropna().astype(str).str.strip()
+    ) if not themes.empty else set()
     unassigned = sorted(t for t in active_theme_ids if t and t not in assigned_theme_ids)
+
+    themed_cluster_ids = set()
+    if not themes.empty:
+        for _, r in themes.iterrows():
+            themed_cluster_ids.update(split_ids(r.get("Included_Cluster_IDs"), "PCL"))
+
+    creg = frames.get("06A_Cluster_Register", pd.DataFrame()).copy()
+    active_cluster_ids = set()
+    if not creg.empty and "Cluster_ID" in creg.columns:
+        ids = creg["Cluster_ID"].fillna("").astype(str).str.strip()
+        mask = ids.str.match(r"^PCL-\d{3}$", case=False, na=False)
+        if "Cluster_Status" in creg.columns:
+            mask &= ~creg["Cluster_Status"].fillna("").astype(str).str.contains(
+                "Retired|Dissolved", case=False, regex=True
+            )
+        active_cluster_ids = set(creg.loc[mask, "Cluster_ID"].astype(str).str.strip())
+
+    unthemed = sorted(
+        cid for cid in active_cluster_ids
+        if cid and cid not in themed_cluster_ids
+    )
 
     root = {
         "type": "stage",
@@ -259,7 +288,11 @@ def build_candidate_stage_tree_data(frames: Dict[str, pd.DataFrame], include_una
             "Active descriptive themes": str(len(themes)),
             "Themes already linked to candidate dimensions": str(len(assigned_theme_ids & active_theme_ids)),
             "Active themes still under review": str(len(unassigned)),
-            "Interpretation": "Dimension status is shown exactly as recorded in the MASTER. Stable inductive structure does not imply external literature or measurement validation is complete.",
+            "Active clusters not yet assigned to a Theme": str(len(unthemed)),
+            "Interpretation": (
+                "Dimension status is shown exactly as recorded in the MASTER. "
+                "Residual Themes and clusters remain visible rather than being force-fitted."
+            ),
         },
         "children": [],
     }
@@ -286,6 +319,26 @@ def build_candidate_stage_tree_data(frames: Dict[str, pd.DataFrame], include_una
             if tnode:
                 group["children"].append(tnode)
         root["children"].append(group)
+
+    if include_unthemed_clusters and unthemed:
+        residual = {
+            "type": "group",
+            "id": "SG3-UNTHEMED-CLUSTERS",
+            "label": "Active clusters not yet assigned to an active Theme",
+            "status": "Residual / not force-fitted",
+            "meta": {
+                "Purpose": (
+                    "Preserves active cluster evidence that has not yet passed into a current Theme. "
+                    "No higher-order assignment is implied."
+                ),
+            },
+            "children": [],
+        }
+        for cid in unthemed:
+            cnode = build_cluster_tree_data(frames, cid)
+            if cnode:
+                residual["children"].append(cnode)
+        root["children"].append(residual)
 
     return root
 
