@@ -42,9 +42,17 @@ from master_utils import (
 )
 from visual_utils import structure_sunburst, dimension_theme_sankey, horizontal_count_bar
 from share_utils import supervisor_share_html
+from snapshot_utils import (
+    load_supervisor_snapshot,
+    snapshot_bytes,
+    nodes_of_type,
+    subtree_by_id,
+    selected_nodes_tree,
+    dimension_summary,
+)
 
 
-APP_VERSION = "v0.7.2"
+APP_VERSION = "v0.8.0"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -511,6 +519,135 @@ def render_data_quality(frames: dict, structure: list):
         st.dataframe(pd.DataFrame(structure), use_container_width=True, hide_index=True)
 
 
+def render_published_supervisor(package: dict):
+    snapshot = package.get("snapshot", {})
+    tree = package.get("tree", {})
+
+    st.markdown('<div class="kicker">Supervisor presentation · sanitized snapshot</div>', unsafe_allow_html=True)
+    st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
+
+    parts = []
+    if snapshot.get("version"):
+        parts.append(str(snapshot.get("version")))
+    if snapshot.get("decision"):
+        parts.append(str(snapshot.get("decision")))
+    if parts:
+        st.caption(" · ".join(parts))
+
+    st.markdown(
+        '<div class="readonly-banner"><b>Supervisor privacy rule:</b> This view does not contain the original Excel MASTER, '
+        'its filename, Meaning Unit verbatim text, context verbatim text, or study/source nodes. '
+        'It shows only the sanitized presentation structure down to First-Order Code level.</div>',
+        unsafe_allow_html=True,
+    )
+
+    tabs = st.tabs(["Overview", "Derivation Tree", "Dimensions"])
+
+    with tabs[0]:
+        st.subheader("Current Analytical Checkpoint")
+        c1, c2, c3, c4 = st.columns(4)
+        if snapshot.get("completed") is not None and snapshot.get("target"):
+            pct = snapshot.get("percent")
+            delta = f"{pct:.1f}%" if isinstance(pct, (int, float)) else None
+            c1.metric("Corpus checkpoint", f"{snapshot['completed']} / {snapshot['target']}", delta)
+        else:
+            c1.metric("Corpus checkpoint", "Not recorded")
+        c2.metric("Active FOCs", snapshot.get("active_focs", 0), f"{snapshot.get('mapped_focs', 0)} mapped")
+        c3.metric("Active clusters", snapshot.get("active_clusters", 0), f"{snapshot.get('provisional_clusters', 0)} provisional")
+        c4.metric("Current dimensions", snapshot.get("active_dimensions", 0), f"{snapshot.get('stable_dimensions', 0)} stable")
+
+        c5, c6, c7 = st.columns(3)
+        c5.metric("Challenged FOCs", snapshot.get("challenged_focs", 0))
+        c6.metric("Active themes", snapshot.get("active_themes", 0), f"{snapshot.get('stable_themes', 0)} stable")
+        c7.metric("Snapshot privacy", "Sanitized", "No Excel")
+
+        st.markdown("#### Progressive abstraction")
+        render_flow(snapshot)
+        st.caption(
+            "The presentation snapshot is refreshed from the researcher's latest compatible MASTER. "
+            "The application is not tied to a workbook filename or version number."
+        )
+
+    with tabs[1]:
+        st.subheader("Interactive Derivation Tree")
+        st.caption("Presentation hierarchy: Candidate Dimension → Theme → Cluster → First-Order Code.")
+
+        style = st.radio(
+            "View",
+            ["Interactive evidence tree", "Org-chart presentation"],
+            horizontal=True,
+            key="published_tree_style",
+        )
+        scope = st.radio(
+            "Scope",
+            ["Whole current structure", "One current Dimension", "Selected Themes"],
+            horizontal=True,
+            key="published_tree_scope",
+        )
+
+        chosen_tree = tree
+        title = "Current PMM Dimension-Derivation Structure"
+
+        if scope == "One current Dimension":
+            dims = nodes_of_type(tree, "dimension")
+            if not dims:
+                st.info("No current dimensions are available in the published snapshot.")
+                return
+            ids = [str(d.get("id", "")) for d in dims]
+            labels = {str(d.get("id", "")): str(d.get("label", "")) for d in dims}
+            did = st.selectbox(
+                "Dimension",
+                ids,
+                format_func=lambda x: f"{x} — {labels.get(x, '')}",
+                key="published_dim",
+            )
+            chosen_tree = subtree_by_id(tree, did) or tree
+            title = f"{did} — {labels.get(did, '')}"
+
+        elif scope == "Selected Themes":
+            themes = nodes_of_type(tree, "theme")
+            if not themes:
+                st.info("No themes are available in the published snapshot.")
+                return
+            ids = [str(t.get("id", "")) for t in themes]
+            labels = {str(t.get("id", "")): str(t.get("label", "")) for t in themes}
+            selected = st.multiselect(
+                "Themes",
+                ids,
+                default=ids[: min(3, len(ids))],
+                format_func=lambda x: f"{x} — {labels.get(x, '')}",
+                key="published_themes",
+            )
+            if not selected:
+                st.info("Select at least one theme.")
+                return
+            chosen_tree = selected_nodes_tree(
+                tree,
+                selected,
+                "theme",
+                f"Selected descriptive themes ({len(selected)})",
+            )
+            title = f"Selected Themes ({len(selected)})"
+
+        if style == "Interactive evidence tree":
+            components.html(tree_html(chosen_tree, title), height=900, scrolling=True)
+        else:
+            components.html(org_chart_html(chosen_tree, title, max_depth=99), height=900, scrolling=True)
+
+        st.caption(
+            "Search by IDs such as PCL-038, THM-008 or DIM-001. "
+            "Source-near Meaning Units are intentionally excluded from this supervisor snapshot."
+        )
+
+    with tabs[2]:
+        st.subheader("Current Candidate Dimensions")
+        rows = dimension_summary(tree)
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("No current dimensions are available in the published snapshot.")
+
+
 def render_supervisor_mode(frames: dict, snapshot: dict):
     share_html = supervisor_share_html(frames, snapshot).encode("utf-8")
     st.download_button(
@@ -568,20 +705,42 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
 
 
 def main():
+    view = st.query_params.get("view", "supervisor")
+    if isinstance(view, list):
+        view = view[0] if view else "supervisor"
+    researcher_access = str(view).strip().lower() == "researcher"
+
+    if not researcher_access:
+        with st.sidebar:
+            st.markdown("## PMM Visual Tool")
+            st.caption(APP_VERSION)
+            st.success("Supervisor view")
+            st.caption("Sanitized presentation only · no Excel upload or workbook access")
+
+        package = load_supervisor_snapshot()
+        if package is None:
+            st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
+            st.info("No supervisor presentation snapshot has been published yet.")
+            return
+
+        render_published_supervisor(package)
+        return
+
     with st.sidebar:
         st.markdown("## PMM Visual Tool")
         st.caption(APP_VERSION)
+        st.info("Researcher workspace")
         master = st.file_uploader("Upload current Excel MASTER (.xlsx)", type=["xlsx"], key="master_xlsx")
-        display_mode = st.radio("Display mode", ["Supervisor Presentation", "Researcher Visual Analytics"], index=1)
+        display_mode = st.radio("Display mode", ["Researcher Visual Analytics", "Supervisor Preview"], index=0)
         st.markdown("---")
         st.success("Read-only: no write-back to Excel")
-        st.caption("Workflow: review/decide in Excel → reload workbook → visualize in Python.")
+        st.caption("Upload any current compatible MASTER. The app is not tied to a filename or version.")
 
     if master is None:
         st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
         st.markdown(
-            '<div class="readonly-banner"><b>New workflow:</b> Excel MASTER remains the analytical source of truth. '
-            'Upload the latest MASTER here only to visualize, audit traceability and present the current structure.</div>',
+            '<div class="readonly-banner"><b>Flexible researcher workflow:</b> Excel MASTER remains the analytical source of truth. '
+            'Upload the latest compatible MASTER here; its filename and version may change freely.</div>',
             unsafe_allow_html=True,
         )
         st.info("Upload the current PMM MASTER workbook from the sidebar to begin.")
@@ -604,11 +763,26 @@ def main():
     render_snapshot_header(
         snapshot,
         master.name,
-        show_filename=(display_mode == "Researcher Visual Analytics"),
+        show_filename=True,
     )
 
-    if display_mode == "Supervisor Presentation":
-        render_supervisor_mode(frames, snapshot)
+    sanitized = snapshot_bytes(frames)
+    with st.sidebar:
+        st.download_button(
+            "Download sanitized supervisor snapshot",
+            data=sanitized,
+            file_name="supervisor_snapshot.json",
+            mime="application/json",
+            help="Contains presentation structure only; no Excel file, filename, Meaning Units, context verbatim, or study/source nodes.",
+            use_container_width=True,
+        )
+
+    if display_mode == "Supervisor Preview":
+        package = {
+            "snapshot": snapshot,
+            "tree": __import__("snapshot_utils").build_supervisor_snapshot(frames)["tree"],
+        }
+        render_published_supervisor(package)
     else:
         render_researcher_mode(frames, snapshot, structure)
 
