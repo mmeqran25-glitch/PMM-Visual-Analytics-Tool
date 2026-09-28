@@ -20,6 +20,7 @@ from master_utils import (
     status_counts,
     active_cluster_register,
     active_themes,
+    retired_themes,
     active_dimensions,
     theme_lineage,
     cluster_members,
@@ -59,7 +60,7 @@ from researcher_cache import (
 )
 
 
-APP_VERSION = "v0.9.1"
+APP_VERSION = "v0.9.2"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -357,23 +358,74 @@ def render_derivation_tree(frames: dict, supervisor: bool = True):
         if themes.empty:
             st.info("No active themes are recorded.")
             return
+
         ids = themes["Theme_ID"].astype(str).tolist()
         labels = dict(zip(themes["Theme_ID"].astype(str), themes["Working_Theme_Label"].astype(str)))
         statuses = dict(zip(themes["Theme_ID"].astype(str), themes["Theme_Status"].astype(str))) if "Theme_Status" in themes.columns else {}
-        st.markdown("#### Choose Themes")
-        st.caption("Tick the square box for each Theme you want to display.")
-        selected = theme_checkbox_grid(
+
+        st.markdown("#### Current Themes")
+        st.caption("Tick the square box for each current Theme you want to display.")
+        selected_current = theme_checkbox_grid(
             ids,
             labels,
-            key_prefix=f"theme_grid_{supervisor}",
+            key_prefix=f"theme_grid_current_{supervisor}",
             statuses=statuses,
             default_selected=ids[:1],
         )
+
+        historical = retired_themes(frames)
+        show_retired = False
+        selected_retired = []
+        if not historical.empty:
+            show_retired = st.checkbox(
+                "Show retired Themes — audit history",
+                value=False,
+                key=f"show_retired_themes_{supervisor}",
+                help=(
+                    "Retired Themes are shown only for historical audit review. "
+                    "They remain excluded from current Theme counts and Candidate-Dimension logic."
+                ),
+            )
+            if show_retired:
+                st.markdown(
+                    '<div class="review-banner"><b>Historical audit only:</b> '
+                    'Retired Themes below are not part of the current analytical structure. '
+                    'Selecting them here does not reactivate or reassign them.</div>',
+                    unsafe_allow_html=True,
+                )
+                retired_ids = historical["Theme_ID"].astype(str).tolist()
+                retired_labels = {
+                    str(tid): f"[RETIRED] {label}"
+                    for tid, label in zip(
+                        historical["Theme_ID"].astype(str),
+                        historical["Working_Theme_Label"].astype(str),
+                    )
+                }
+                retired_statuses = (
+                    dict(zip(historical["Theme_ID"].astype(str), historical["Theme_Status"].astype(str)))
+                    if "Theme_Status" in historical.columns else {}
+                )
+                selected_retired = theme_checkbox_grid(
+                    retired_ids,
+                    retired_labels,
+                    key_prefix=f"theme_grid_retired_{supervisor}",
+                    statuses=retired_statuses,
+                    default_selected=[],
+                )
+
+        selected = selected_current + selected_retired
         if not selected:
-            st.info("Tick at least one Theme to display the tree.")
+            st.info("Tick at least one current or retired Theme to display the tree.")
             return
-        tree_data = build_selected_themes_tree_data(frames, selected)
-        title = f"Selected Themes ({len(selected)})"
+
+        tree_data = build_selected_themes_tree_data(
+            frames,
+            selected,
+            include_retired=show_retired,
+        )
+        current_n = len(selected_current)
+        retired_n = len(selected_retired)
+        title = f"Selected Themes ({len(selected)} total · {current_n} current · {retired_n} retired audit)"
 
     if not tree_data:
         st.info("No tree data available for this scope.")
