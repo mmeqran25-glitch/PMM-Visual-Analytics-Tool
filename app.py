@@ -206,10 +206,12 @@ def theme_dropdown_selector(
         selected_retired: list[str] = []
         if valid_retired:
             st.divider()
+            retired_toggle_key = f"{key_prefix}__show_retired"
+            if retired_toggle_key not in st.session_state:
+                st.session_state[retired_toggle_key] = False
             show_retired = st.checkbox(
                 "Show retired Themes — audit history",
-                value=bool(st.session_state.get(f"{key_prefix}__show_retired", False)),
-                key=f"{key_prefix}__show_retired",
+                key=retired_toggle_key,
                 help=(
                     "Historical audit only. Retired Themes remain excluded from "
                     "current Theme counts and Candidate-Dimension logic."
@@ -231,7 +233,7 @@ def theme_dropdown_selector(
 
                 for tid in valid_retired:
                     checked = st.checkbox(
-                        f"☒ {tid} — {retired_labels.get(tid, '')}",
+                        f"[RETIRED] {tid} — {retired_labels.get(tid, '')}",
                         key=f"{key_prefix}__retired__{tid}",
                         help=(
                             f"Historical status: {retired_statuses.get(tid, '')}"
