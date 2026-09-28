@@ -53,7 +53,7 @@ from snapshot_utils import (
 )
 
 
-APP_VERSION = "v0.8.0"
+APP_VERSION = "v0.8.1"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
