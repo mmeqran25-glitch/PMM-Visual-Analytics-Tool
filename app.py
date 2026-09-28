@@ -691,6 +691,7 @@ def render_data_quality(frames: dict, structure: list):
 def render_published_supervisor(package: dict):
     snapshot = package.get("snapshot", {})
     tree = package.get("tree", {})
+    retired_snapshot_themes = package.get("retired_themes", []) or []
 
     st.markdown('<div class="kicker">Supervisor presentation · sanitized snapshot</div>', unsafe_allow_html=True)
     st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
@@ -787,28 +788,83 @@ def render_published_supervisor(package: dict):
             if not themes:
                 st.info("No themes are available in the published snapshot.")
                 return
+
             ids = [str(t.get("id", "")) for t in themes]
             labels = {str(t.get("id", "")): str(t.get("label", "")) for t in themes}
             statuses = {str(t.get("id", "")): str(t.get("status", "")) for t in themes}
-            st.markdown("#### Choose Themes")
-            st.caption("Tick the square box for each Theme you want to display.")
-            selected = theme_checkbox_grid(
+
+            st.markdown("#### Current Themes")
+            st.caption("Tick the square box for each current Theme you want to display.")
+            selected_current = theme_checkbox_grid(
                 ids,
                 labels,
-                key_prefix="published_theme_grid",
+                key_prefix="published_theme_grid_current",
                 statuses=statuses,
                 default_selected=ids[:1],
             )
+
+            selected_retired = []
+            show_retired = False
+            if retired_snapshot_themes:
+                show_retired = st.checkbox(
+                    "Show retired Themes — audit history",
+                    value=False,
+                    key="published_show_retired_themes",
+                    help=(
+                        "Retired Themes are available only for historical audit review "
+                        "and remain excluded from the current analytical structure."
+                    ),
+                )
+                if show_retired:
+                    st.markdown(
+                        '<div class="review-banner"><b>Historical audit only:</b> '
+                        'Retired Themes are not current constructs. Their PCL references are shown '
+                        'for audit history without reactivating them.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    rids = [str(t.get("id", "")) for t in retired_snapshot_themes]
+                    rlabels = {
+                        str(t.get("id", "")): f"[RETIRED] {t.get('label', '')}"
+                        for t in retired_snapshot_themes
+                    }
+                    rstatuses = {
+                        str(t.get("id", "")): str(t.get("status", ""))
+                        for t in retired_snapshot_themes
+                    }
+                    selected_retired = theme_checkbox_grid(
+                        rids,
+                        rlabels,
+                        key_prefix="published_theme_grid_retired",
+                        statuses=rstatuses,
+                        default_selected=[],
+                    )
+
+            selected = selected_current + selected_retired
             if not selected:
-                st.info("Tick at least one Theme to display the tree.")
+                st.info("Tick at least one current or retired Theme to display the tree.")
                 return
+
             chosen_tree = selected_nodes_tree(
                 tree,
-                selected,
+                selected_current,
                 "theme",
                 f"Selected descriptive themes ({len(selected)})",
             )
-            title = f"Selected Themes ({len(selected)})"
+            if selected_retired:
+                retired_lookup = {
+                    str(t.get("id", "")): t for t in retired_snapshot_themes
+                }
+                chosen_tree["children"].extend(
+                    retired_lookup[tid] for tid in selected_retired if tid in retired_lookup
+                )
+                chosen_tree["meta"]["Historical audit"] = (
+                    f"{len(selected_retired)} retired Theme(s) shown for audit history only."
+                )
+
+            title = (
+                f"Selected Themes ({len(selected)} total · "
+                f"{len(selected_current)} current · {len(selected_retired)} retired audit)"
+            )
 
         if style == "Interactive evidence tree":
             components.html(tree_html(chosen_tree, title), height=900, scrolling=True)
