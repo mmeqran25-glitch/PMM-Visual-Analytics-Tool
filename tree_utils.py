@@ -75,6 +75,7 @@ def build_theme_tree_data(frames: Dict[str, pd.DataFrame], theme_id: str) -> Dic
     if match.empty:
         return {}
     tr = match.iloc[0]
+    historical_theme = "retired" in _text(tr.get("Theme_Status")).lower()
     root = {
         "type": "theme",
         "id": _text(tr.get("Theme_ID")),
@@ -106,10 +107,15 @@ def build_theme_tree_data(frames: Dict[str, pd.DataFrame], theme_id: str) -> Dic
                 "Inclusion boundary": _text(cr.get("Inclusion_Boundary")),
                 "Exclusion boundary": _text(cr.get("Exclusion_Boundary")),
                 "Nearest conceptual neighbours": _text(cr.get("Nearest_Conceptual_Neighbours")),
+                "Historical audit note": (
+                    "This PCL reference is read from the retired Theme row. "
+                    "Current FOC memberships are intentionally not expanded in historical audit mode."
+                    if historical_theme else ""
+                ),
             },
             "children": [],
         }
-        members = cluster_members(frames, cid)
+        members = pd.DataFrame() if historical_theme else cluster_members(frames, cid)
         if not members.empty:
             # One node per code; if duplicate mappings exist, retain first current row.
             if "Code_ID" in members.columns:
