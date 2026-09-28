@@ -630,6 +630,7 @@ def org_chart_html(tree: Dict[str, Any], title: str = "Presentation Org Chart", 
   </div>
   <div class="org-controls" aria-label="Chart display controls">
     <button type="button" id="ocFit">Fit to screen</button>
+    <button type="button" id="ocCenter">Center view</button>
     <button type="button" id="ocActual">100%</button>
     <button type="button" id="ocZoomOut" aria-label="Zoom out">-</button>
     <span id="ocZoomLabel" class="zoom-label">100%</span>
@@ -659,9 +660,12 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
 .org-controls button:hover {{ background:#edf5fb; }}
 .zoom-label {{ min-width:48px; text-align:center; font-size:12px; font-weight:800; color:#425d76; }}
 .control-sep {{ width:1px; height:28px; background:#d9e4ef; margin:0 3px; }}
-.org-scroll {{ width:100%; box-sizing:border-box; overflow:auto; padding:8px 8px 22px; scroll-behavior:smooth; border-top:1px solid #edf1f5; min-height:640px; }}
+.org-scroll {{ width:100%; box-sizing:border-box; overflow:auto; padding:8px 8px 22px; scroll-behavior:smooth; border-top:1px solid #edf1f5; min-height:640px; cursor:grab; overscroll-behavior-x:contain; scrollbar-gutter:stable both-edges; }}
+.org-scroll.oc-dragging {{ cursor:grabbing; scroll-behavior:auto; user-select:none; }}
 .org-tree {{ width:max-content; min-width:100%; margin:0 auto; transform-origin:top center; }}
 .org-tree ul {{ box-sizing:border-box; padding:20px 0 0 0; margin:0 auto; position:relative; display:flex; justify-content:center; flex-wrap:nowrap; width:max-content; min-width:100%; }}
+/* Center every descendant row beneath its parent card, even when the row is wider than the viewport. */
+.org-tree ul.oc-children {{ left:50%; transform:translateX(-50%); min-width:max-content; }}
 .org-tree li {{ list-style-type:none; text-align:center; position:relative; padding:20px 6px 0 6px; }}
 .org-tree li::before, .org-tree li::after {{ content:''; position:absolute; top:0; right:50%; border-top:2px solid #cfd9e4; width:50%; height:20px; }}
 .org-tree li::after {{ right:auto; left:50%; border-left:2px solid #cfd9e4; }}
@@ -704,6 +708,7 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
 
   const zoomLabel = document.getElementById('ocZoomLabel');
   const fitBtn = document.getElementById('ocFit');
+  const centerBtn = document.getElementById('ocCenter');
   const actualBtn = document.getElementById('ocActual');
   const zinBtn = document.getElementById('ocZoomIn');
   const zoutBtn = document.getElementById('ocZoomOut');
@@ -730,7 +735,8 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
 
   function centerTree() {{
     requestAnimationFrame(() => {{
-      viewport.scrollLeft = Math.max(0, (viewport.scrollWidth - viewport.clientWidth) / 2);
+      const target = Math.max(0, (viewport.scrollWidth - viewport.clientWidth) / 2);
+      viewport.scrollTo({{ left: target, behavior: 'smooth' }});
     }});
   }}
 
@@ -786,6 +792,7 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
   }});
 
   if (fitBtn) fitBtn.addEventListener('click', fitTree);
+  if (centerBtn) centerBtn.addEventListener('click', centerTree);
   if (actualBtn) actualBtn.addEventListener('click', () => {{ autoFit = false; applyZoom(1, false); centerTree(); }});
   if (zinBtn) zinBtn.addEventListener('click', () => {{ applyZoom(zoom + 0.1, true); centerTree(); }});
   if (zoutBtn) zoutBtn.addEventListener('click', () => {{ applyZoom(zoom - 0.1, true); centerTree(); }});
@@ -799,6 +806,45 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
     root.querySelectorAll('.oc-card[data-has-children="true"]').forEach((card, idx) => setExpanded(card, idx === 0, false));
     afterStructureChange(root.querySelector('.oc-card'));
   }});
+
+  // Mouse/touchpad-friendly horizontal browsing: drag anywhere in the chart background.
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartScroll = 0;
+
+  viewport.addEventListener('pointerdown', (e) => {{
+    if (e.button !== 0 || e.target.closest('button, .oc-card')) return;
+    dragging = true;
+    dragStartX = e.clientX;
+    dragStartScroll = viewport.scrollLeft;
+    viewport.classList.add('oc-dragging');
+    viewport.setPointerCapture?.(e.pointerId);
+  }});
+
+  viewport.addEventListener('pointermove', (e) => {{
+    if (!dragging) return;
+    viewport.scrollLeft = dragStartScroll - (e.clientX - dragStartX);
+  }});
+
+  function stopDragging(e) {{
+    if (!dragging) return;
+    dragging = false;
+    viewport.classList.remove('oc-dragging');
+    try {{ viewport.releasePointerCapture?.(e.pointerId); }} catch (_) {{}}
+  }}
+  viewport.addEventListener('pointerup', stopDragging);
+  viewport.addEventListener('pointercancel', stopDragging);
+  viewport.addEventListener('pointerleave', (e) => {{ if (dragging && e.buttons === 0) stopDragging(e); }});
+
+  // A normal mouse wheel browses a wide row horizontally when vertical movement is not needed.
+  viewport.addEventListener('wheel', (e) => {{
+    const canBrowseHorizontally = viewport.scrollWidth > viewport.clientWidth + 4;
+    if (!canBrowseHorizontally) return;
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && !e.ctrlKey) {{
+      viewport.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }}
+  }}, {{ passive:false }});
 
   if (typeof ResizeObserver !== 'undefined') {{
     const ro = new ResizeObserver(() => {{ if (autoFit) fitTree(); }});
