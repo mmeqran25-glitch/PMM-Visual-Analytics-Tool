@@ -6,8 +6,8 @@ import gzip
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from master_utils import master_snapshot
-from tree_utils import build_candidate_stage_tree_data
+from master_utils import master_snapshot, retired_themes
+from tree_utils import build_candidate_stage_tree_data, build_theme_tree_data
 
 
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -56,6 +56,15 @@ def build_supervisor_snapshot(frames: Dict[str, Any]) -> Dict[str, Any]:
     tree = build_candidate_stage_tree_data(frames, include_unassigned_themes=True)
     clean_tree = _prune_tree(tree) or {}
 
+    historical_nodes = []
+    historical = retired_themes(frames)
+    if not historical.empty:
+        for tid in historical["Theme_ID"].dropna().astype(str).str.strip():
+            node = build_theme_tree_data(frames, tid)
+            clean = _prune_tree(node) if node else None
+            if clean is not None:
+                historical_nodes.append(clean)
+
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "kind": "PMM_SUPERVISOR_PRESENTATION_SNAPSHOT",
@@ -69,6 +78,7 @@ def build_supervisor_snapshot(frames: Dict[str, Any]) -> Dict[str, Any]:
         },
         "snapshot": live,
         "tree": clean_tree,
+        "retired_themes": historical_nodes,
     }
 
 
