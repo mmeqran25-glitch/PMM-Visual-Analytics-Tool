@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.9.2
+# PMM Visual Analytics & Presentation Tool v0.9.3
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -75,6 +75,14 @@ Adds:
 - Retired Themes are clearly labelled **[RETIRED]** and **Historical audit only**.
 - Selecting a retired Theme does not reactivate it or include it in the current analytical structure.
 - Historical Theme views stop at the Theme → PCL reference level so current FOC memberships are not misrepresented as historical memberships.
+
+## v0.9.3 compact Theme dropdown
+
+- Theme selection now uses one compact dropdown/popover instead of displaying every Theme as a full-page card.
+- Open the dropdown and tick ✓ the required Themes; the page remains compact when the dropdown is closed.
+- Includes Select all current / Clear current controls and a selected-Theme count.
+- Retired Themes remain inside the same dropdown under the optional **Show retired Themes — audit history** section.
+- The same compact Theme selector is used in Researcher and Supervisor views.
 
 ## Workbook compatibility
 

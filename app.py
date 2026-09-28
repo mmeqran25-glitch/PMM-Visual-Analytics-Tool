@@ -60,7 +60,7 @@ from researcher_cache import (
 )
 
 
-APP_VERSION = "v0.9.2"
+APP_VERSION = "v0.9.3"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -140,52 +140,131 @@ def card_choice(
     return st.session_state[key]
 
 
-def theme_checkbox_grid(
+def theme_dropdown_selector(
     ids: list[str],
     labels: dict[str, str],
     key_prefix: str,
     statuses: dict[str, str] | None = None,
     default_selected: list[str] | None = None,
-) -> list[str]:
-    """Render Themes as bordered checkbox cards rather than a multiselect."""
+    retired_ids: list[str] | None = None,
+    retired_labels: dict[str, str] | None = None,
+    retired_statuses: dict[str, str] | None = None,
+) -> tuple[list[str], list[str], bool]:
+    """Compact dropdown checklist for current and optional retired Themes."""
     statuses = statuses or {}
     default_selected = default_selected or []
+    retired_ids = retired_ids or []
+    retired_labels = retired_labels or {}
+    retired_statuses = retired_statuses or {}
+
     valid_ids = [str(x) for x in ids if str(x)]
+    valid_retired = [str(x) for x in retired_ids if str(x)]
 
-    a, b, c = st.columns([1, 1, 2])
-    with a:
-        if st.button("Select all", key=f"{key_prefix}__all", use_container_width=True):
-            for tid in valid_ids:
-                st.session_state[f"{key_prefix}__{tid}"] = True
-            st.rerun()
-    with b:
-        if st.button("Clear all", key=f"{key_prefix}__clear", use_container_width=True):
-            for tid in valid_ids:
-                st.session_state[f"{key_prefix}__{tid}"] = False
-            st.rerun()
+    for tid in valid_ids:
+        state_key = f"{key_prefix}__current__{tid}"
+        if state_key not in st.session_state:
+            st.session_state[state_key] = tid in default_selected
 
-    cols = st.columns(2)
-    selected: list[str] = []
+    selected_before = [
+        tid for tid in valid_ids
+        if st.session_state.get(f"{key_prefix}__current__{tid}", False)
+    ]
+    retired_before = [
+        tid for tid in valid_retired
+        if st.session_state.get(f"{key_prefix}__retired__{tid}", False)
+    ]
+    total_before = len(selected_before) + len(retired_before)
 
-    for idx, tid in enumerate(valid_ids):
-        widget_key = f"{key_prefix}__{tid}"
-        if widget_key not in st.session_state:
-            st.session_state[widget_key] = tid in default_selected
+    with st.popover(
+        f"Themes ▾  ·  {total_before} selected",
+        use_container_width=True,
+    ):
+        st.markdown("**Current Themes**")
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("Select all current", key=f"{key_prefix}__all_current", use_container_width=True):
+                for tid in valid_ids:
+                    st.session_state[f"{key_prefix}__current__{tid}"] = True
+                st.rerun()
+        with b2:
+            if st.button("Clear current", key=f"{key_prefix}__clear_current", use_container_width=True):
+                for tid in valid_ids:
+                    st.session_state[f"{key_prefix}__current__{tid}"] = False
+                st.rerun()
 
-        with cols[idx % 2]:
-            with st.container(border=True):
-                checked = st.checkbox(
-                    f"{tid} — {labels.get(tid, '')}",
-                    key=widget_key,
-                )
-                status = statuses.get(tid, "")
-                if status:
-                    st.caption(f"Status: {status}")
-                if checked:
-                    selected.append(tid)
+        selected_current: list[str] = []
+        for tid in valid_ids:
+            checked = st.checkbox(
+                f"{tid} — {labels.get(tid, '')}",
+                key=f"{key_prefix}__current__{tid}",
+                help=f"Status: {statuses.get(tid, '')}" if statuses.get(tid, "") else None,
+            )
+            if checked:
+                selected_current.append(tid)
 
-    c.metric("Selected Themes", len(selected))
-    return selected
+        show_retired = False
+        selected_retired: list[str] = []
+        if valid_retired:
+            st.divider()
+            retired_toggle_key = f"{key_prefix}__show_retired"
+            if retired_toggle_key not in st.session_state:
+                st.session_state[retired_toggle_key] = False
+            show_retired = st.checkbox(
+                "Show retired Themes — audit history",
+                key=retired_toggle_key,
+                help=(
+                    "Historical audit only. Retired Themes remain excluded from "
+                    "current Theme counts and Candidate-Dimension logic."
+                ),
+            )
+            if show_retired:
+                st.caption("Historical audit only — selecting these does not reactivate them.")
+                r1, r2 = st.columns(2)
+                with r1:
+                    if st.button("Select all retired", key=f"{key_prefix}__all_retired", use_container_width=True):
+                        for tid in valid_retired:
+                            st.session_state[f"{key_prefix}__retired__{tid}"] = True
+                        st.rerun()
+                with r2:
+                    if st.button("Clear retired", key=f"{key_prefix}__clear_retired", use_container_width=True):
+                        for tid in valid_retired:
+                            st.session_state[f"{key_prefix}__retired__{tid}"] = False
+                        st.rerun()
+
+                for tid in valid_retired:
+                    checked = st.checkbox(
+                        f"[RETIRED] {tid} — {retired_labels.get(tid, '')}",
+                        key=f"{key_prefix}__retired__{tid}",
+                        help=(
+                            f"Historical status: {retired_statuses.get(tid, '')}"
+                            if retired_statuses.get(tid, "") else "Retired Theme — audit history only."
+                        ),
+                    )
+                    if checked:
+                        selected_retired.append(tid)
+            else:
+                selected_retired = []
+
+    selected_current = [
+        tid for tid in valid_ids
+        if st.session_state.get(f"{key_prefix}__current__{tid}", False)
+    ]
+    if show_retired:
+        selected_retired = [
+            tid for tid in valid_retired
+            if st.session_state.get(f"{key_prefix}__retired__{tid}", False)
+        ]
+
+    selected_names = selected_current + selected_retired
+    if selected_names:
+        preview = ", ".join(selected_names[:6])
+        if len(selected_names) > 6:
+            preview += f" … +{len(selected_names) - 6}"
+        st.caption(f"Selected: {preview}")
+    else:
+        st.caption("No Themes selected.")
+
+    return selected_current, selected_retired, show_retired
 
 
 def render_flow(snapshot: dict):
@@ -363,55 +442,29 @@ def render_derivation_tree(frames: dict, supervisor: bool = True):
         labels = dict(zip(themes["Theme_ID"].astype(str), themes["Working_Theme_Label"].astype(str)))
         statuses = dict(zip(themes["Theme_ID"].astype(str), themes["Theme_Status"].astype(str))) if "Theme_Status" in themes.columns else {}
 
-        st.markdown("#### Current Themes")
-        st.caption("Tick the square box for each current Theme you want to display.")
-        selected_current = theme_checkbox_grid(
-            ids,
-            labels,
-            key_prefix=f"theme_grid_current_{supervisor}",
-            statuses=statuses,
-            default_selected=ids[:1],
+        historical = retired_themes(frames)
+        retired_ids = historical["Theme_ID"].astype(str).tolist() if not historical.empty else []
+        retired_labels = (
+            dict(zip(historical["Theme_ID"].astype(str), historical["Working_Theme_Label"].astype(str)))
+            if not historical.empty else {}
+        )
+        retired_statuses = (
+            dict(zip(historical["Theme_ID"].astype(str), historical["Theme_Status"].astype(str)))
+            if not historical.empty and "Theme_Status" in historical.columns else {}
         )
 
-        historical = retired_themes(frames)
-        show_retired = False
-        selected_retired = []
-        if not historical.empty:
-            show_retired = st.checkbox(
-                "Show retired Themes — audit history",
-                value=False,
-                key=f"show_retired_themes_{supervisor}",
-                help=(
-                    "Retired Themes are shown only for historical audit review. "
-                    "They remain excluded from current Theme counts and Candidate-Dimension logic."
-                ),
-            )
-            if show_retired:
-                st.markdown(
-                    '<div class="review-banner"><b>Historical audit only:</b> '
-                    'Retired Themes below are not part of the current analytical structure. '
-                    'Selecting them here does not reactivate or reassign them.</div>',
-                    unsafe_allow_html=True,
-                )
-                retired_ids = historical["Theme_ID"].astype(str).tolist()
-                retired_labels = {
-                    str(tid): f"[RETIRED] {label}"
-                    for tid, label in zip(
-                        historical["Theme_ID"].astype(str),
-                        historical["Working_Theme_Label"].astype(str),
-                    )
-                }
-                retired_statuses = (
-                    dict(zip(historical["Theme_ID"].astype(str), historical["Theme_Status"].astype(str)))
-                    if "Theme_Status" in historical.columns else {}
-                )
-                selected_retired = theme_checkbox_grid(
-                    retired_ids,
-                    retired_labels,
-                    key_prefix=f"theme_grid_retired_{supervisor}",
-                    statuses=retired_statuses,
-                    default_selected=[],
-                )
+        st.markdown("#### Themes")
+        st.caption("Open the dropdown, then tick ✓ the Themes you want to display.")
+        selected_current, selected_retired, show_retired = theme_dropdown_selector(
+            ids,
+            labels,
+            key_prefix=f"theme_dropdown_{supervisor}",
+            statuses=statuses,
+            default_selected=ids[:1],
+            retired_ids=retired_ids,
+            retired_labels=retired_labels,
+            retired_statuses=retired_statuses,
+        )
 
         selected = selected_current + selected_retired
         if not selected:
@@ -793,51 +846,28 @@ def render_published_supervisor(package: dict):
             labels = {str(t.get("id", "")): str(t.get("label", "")) for t in themes}
             statuses = {str(t.get("id", "")): str(t.get("status", "")) for t in themes}
 
-            st.markdown("#### Current Themes")
-            st.caption("Tick the square box for each current Theme you want to display.")
-            selected_current = theme_checkbox_grid(
+            rids = [str(t.get("id", "")) for t in retired_snapshot_themes]
+            rlabels = {
+                str(t.get("id", "")): str(t.get("label", ""))
+                for t in retired_snapshot_themes
+            }
+            rstatuses = {
+                str(t.get("id", "")): str(t.get("status", ""))
+                for t in retired_snapshot_themes
+            }
+
+            st.markdown("#### Themes")
+            st.caption("Open the dropdown, then tick ✓ the Themes you want to display.")
+            selected_current, selected_retired, show_retired = theme_dropdown_selector(
                 ids,
                 labels,
-                key_prefix="published_theme_grid_current",
+                key_prefix="published_theme_dropdown",
                 statuses=statuses,
                 default_selected=ids[:1],
+                retired_ids=rids,
+                retired_labels=rlabels,
+                retired_statuses=rstatuses,
             )
-
-            selected_retired = []
-            show_retired = False
-            if retired_snapshot_themes:
-                show_retired = st.checkbox(
-                    "Show retired Themes — audit history",
-                    value=False,
-                    key="published_show_retired_themes",
-                    help=(
-                        "Retired Themes are available only for historical audit review "
-                        "and remain excluded from the current analytical structure."
-                    ),
-                )
-                if show_retired:
-                    st.markdown(
-                        '<div class="review-banner"><b>Historical audit only:</b> '
-                        'Retired Themes are not current constructs. Their PCL references are shown '
-                        'for audit history without reactivating them.</div>',
-                        unsafe_allow_html=True,
-                    )
-                    rids = [str(t.get("id", "")) for t in retired_snapshot_themes]
-                    rlabels = {
-                        str(t.get("id", "")): f"[RETIRED] {t.get('label', '')}"
-                        for t in retired_snapshot_themes
-                    }
-                    rstatuses = {
-                        str(t.get("id", "")): str(t.get("status", ""))
-                        for t in retired_snapshot_themes
-                    }
-                    selected_retired = theme_checkbox_grid(
-                        rids,
-                        rlabels,
-                        key_prefix="published_theme_grid_retired",
-                        statuses=rstatuses,
-                        default_selected=[],
-                    )
 
             selected = selected_current + selected_retired
             if not selected:
