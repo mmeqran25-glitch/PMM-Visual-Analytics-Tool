@@ -59,7 +59,7 @@ from researcher_cache import (
 )
 
 
-APP_VERSION = "v0.9.0"
+APP_VERSION = "v0.9.1"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -98,6 +98,93 @@ def clipped(value, n=220):
 def current_dimension_status_counts(frames: dict) -> pd.DataFrame:
     dims = active_dimensions(frames)
     return status_counts(dims, "Dimension_Status") if not dims.empty else pd.DataFrame()
+
+
+def card_choice(
+    title: str,
+    options: list[str],
+    key: str,
+    descriptions: dict[str, str] | None = None,
+    default_index: int = 0,
+) -> str:
+    """Render a small set of mutually exclusive choices as interactive cards."""
+    descriptions = descriptions or {}
+    if key not in st.session_state or st.session_state.get(key) not in options:
+        st.session_state[key] = options[min(max(default_index, 0), len(options) - 1)]
+
+    st.markdown(f"**{html.escape(title)}**")
+    cols = st.columns(len(options))
+    current = st.session_state[key]
+
+    for idx, option in enumerate(options):
+        selected = current == option
+        with cols[idx]:
+            with st.container(border=True):
+                st.markdown(
+                    f"<div style='font-weight:800;font-size:.98rem;margin-bottom:.2rem;'>"
+                    f"{'✓ ' if selected else ''}{html.escape(option)}</div>",
+                    unsafe_allow_html=True,
+                )
+                if descriptions.get(option):
+                    st.caption(descriptions[option])
+                if st.button(
+                    "Selected" if selected else "Choose",
+                    key=f"{key}__option_{idx}",
+                    use_container_width=True,
+                    type="primary" if selected else "secondary",
+                ):
+                    st.session_state[key] = option
+                    st.rerun()
+
+    return st.session_state[key]
+
+
+def theme_checkbox_grid(
+    ids: list[str],
+    labels: dict[str, str],
+    key_prefix: str,
+    statuses: dict[str, str] | None = None,
+    default_selected: list[str] | None = None,
+) -> list[str]:
+    """Render Themes as bordered checkbox cards rather than a multiselect."""
+    statuses = statuses or {}
+    default_selected = default_selected or []
+    valid_ids = [str(x) for x in ids if str(x)]
+
+    a, b, c = st.columns([1, 1, 2])
+    with a:
+        if st.button("Select all", key=f"{key_prefix}__all", use_container_width=True):
+            for tid in valid_ids:
+                st.session_state[f"{key_prefix}__{tid}"] = True
+            st.rerun()
+    with b:
+        if st.button("Clear all", key=f"{key_prefix}__clear", use_container_width=True):
+            for tid in valid_ids:
+                st.session_state[f"{key_prefix}__{tid}"] = False
+            st.rerun()
+
+    cols = st.columns(2)
+    selected: list[str] = []
+
+    for idx, tid in enumerate(valid_ids):
+        widget_key = f"{key_prefix}__{tid}"
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = tid in default_selected
+
+        with cols[idx % 2]:
+            with st.container(border=True):
+                checked = st.checkbox(
+                    f"{tid} — {labels.get(tid, '')}",
+                    key=widget_key,
+                )
+                status = statuses.get(tid, "")
+                if status:
+                    st.caption(f"Status: {status}")
+                if checked:
+                    selected.append(tid)
+
+    c.metric("Selected Themes", len(selected))
+    return selected
 
 
 def render_flow(snapshot: dict):
@@ -226,13 +313,30 @@ def render_structure_visuals(frames: dict):
 def render_derivation_tree(frames: dict, supervisor: bool = True):
     st.subheader("Interactive Derivation Tree")
     st.caption("Click and expand the analytical chain without changing Excel: Dimension → Theme → Cluster → FOC → Meaning Unit → Study.")
-    style = st.radio("View", ["Interactive evidence tree", "Org-chart presentation"], horizontal=True, key=f"tree_style_{supervisor}")
-    scope = st.radio(
+
+    style = card_choice(
+        "View",
+        ["Interactive evidence tree", "Org-chart presentation"],
+        key=f"tree_style_card_{supervisor}",
+        descriptions={
+            "Interactive evidence tree": "Compact expandable evidence view.",
+            "Org-chart presentation": "Visual hierarchy with interactive cards and drill-down.",
+        },
+        default_index=1,
+    )
+
+    scope = card_choice(
         "Scope",
         ["Whole current structure", "One current Dimension", "Selected Themes"],
-        horizontal=True,
-        key=f"tree_scope_{supervisor}",
+        key=f"tree_scope_card_{supervisor}",
+        descriptions={
+            "Whole current structure": "Display the complete current hierarchy.",
+            "One current Dimension": "Focus on a single Candidate Dimension.",
+            "Selected Themes": "Tick one or more Themes from a checkbox grid.",
+        },
+        default_index=0,
     )
+
     tree_data = None
     title = ""
     if scope == "Whole current structure":
@@ -255,12 +359,18 @@ def render_derivation_tree(frames: dict, supervisor: bool = True):
             return
         ids = themes["Theme_ID"].astype(str).tolist()
         labels = dict(zip(themes["Theme_ID"].astype(str), themes["Working_Theme_Label"].astype(str)))
-        selected = st.multiselect(
-            "Themes", ids, default=ids[: min(3, len(ids))],
-            format_func=lambda x: f"{x} — {labels.get(x,'')}", key=f"tree_themes_{supervisor}"
+        statuses = dict(zip(themes["Theme_ID"].astype(str), themes["Theme_Status"].astype(str))) if "Theme_Status" in themes.columns else {}
+        st.markdown("#### Choose Themes")
+        st.caption("Tick the square box for each Theme you want to display.")
+        selected = theme_checkbox_grid(
+            ids,
+            labels,
+            key_prefix=f"theme_grid_{supervisor}",
+            statuses=statuses,
+            default_selected=ids[:1],
         )
         if not selected:
-            st.info("Select at least one theme.")
+            st.info("Tick at least one Theme to display the tree.")
             return
         tree_data = build_selected_themes_tree_data(frames, selected)
         title = f"Selected Themes ({len(selected)})"
@@ -579,17 +689,26 @@ def render_published_supervisor(package: dict):
         st.subheader("Interactive Derivation Tree")
         st.caption("Presentation hierarchy: Candidate Dimension → Theme → Cluster → First-Order Code.")
 
-        style = st.radio(
+        style = card_choice(
             "View",
             ["Interactive evidence tree", "Org-chart presentation"],
-            horizontal=True,
-            key="published_tree_style",
+            key="published_tree_style_card",
+            descriptions={
+                "Interactive evidence tree": "Compact expandable evidence view.",
+                "Org-chart presentation": "Visual hierarchy with interactive cards and drill-down.",
+            },
+            default_index=1,
         )
-        scope = st.radio(
+        scope = card_choice(
             "Scope",
             ["Whole current structure", "One current Dimension", "Selected Themes"],
-            horizontal=True,
-            key="published_tree_scope",
+            key="published_tree_scope_card",
+            descriptions={
+                "Whole current structure": "Display the complete published hierarchy.",
+                "One current Dimension": "Focus on one Candidate Dimension.",
+                "Selected Themes": "Tick one or more Themes from a checkbox grid.",
+            },
+            default_index=0,
         )
 
         chosen_tree = tree
@@ -618,15 +737,18 @@ def render_published_supervisor(package: dict):
                 return
             ids = [str(t.get("id", "")) for t in themes]
             labels = {str(t.get("id", "")): str(t.get("label", "")) for t in themes}
-            selected = st.multiselect(
-                "Themes",
+            statuses = {str(t.get("id", "")): str(t.get("status", "")) for t in themes}
+            st.markdown("#### Choose Themes")
+            st.caption("Tick the square box for each Theme you want to display.")
+            selected = theme_checkbox_grid(
                 ids,
-                default=ids[: min(3, len(ids))],
-                format_func=lambda x: f"{x} — {labels.get(x, '')}",
-                key="published_themes",
+                labels,
+                key_prefix="published_theme_grid",
+                statuses=statuses,
+                default_selected=ids[:1],
             )
             if not selected:
-                st.info("Select at least one theme.")
+                st.info("Tick at least one Theme to display the tree.")
                 return
             chosen_tree = selected_nodes_tree(
                 tree,

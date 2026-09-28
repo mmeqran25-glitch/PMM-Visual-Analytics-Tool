@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.9.0
+# PMM Visual Analytics & Presentation Tool v0.9.1
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -60,6 +60,13 @@ Adds:
 - **Evidence Integrity** using `04A_MU_Context_Audit` when present
 - **Stability** recorded audit results
 - **Data Quality** structural traceability checks
+
+## v0.9.1 interaction improvements
+
+- View and Scope choices are shown as bordered interactive cards instead of plain radio rows.
+- Theme filtering uses square checkbox cards in a two-column grid.
+- Includes Select all / Clear all controls and a live selected-Theme count.
+- The same interaction model is used in Researcher and Supervisor views.
 
 ## Workbook compatibility
 
