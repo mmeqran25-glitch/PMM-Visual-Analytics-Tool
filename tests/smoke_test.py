@@ -2,14 +2,22 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import base64
 import gzip
+import hashlib
 
 import pandas as pd
 
 from master_utils import load_master_workbook, master_snapshot, validate_master
 from share_utils import supervisor_share_html
 from snapshot_utils import load_supervisor_snapshot, nodes_of_type
+from researcher_cache import (
+    token_matches,
+    save_cached_master,
+    load_cached_master,
+    clear_cached_master,
+)
 
 
 HEADER_ROW = 3
@@ -137,6 +145,25 @@ def main():
     compact_text = gzip.decompress(base64.b64decode(encoded)).decode("utf-8")
     for forbidden in [".xlsx", "Meaning_Unit_Verbatim", "Context_Verbatim", "Study_ID", "Evidence_ID"]:
         assert forbidden not in compact_text, forbidden
+
+    # Researcher workbook cache persists independently of a Streamlit browser session.
+    with TemporaryDirectory() as td:
+        saved = save_cached_master("changing_name_v99.xlsx", payload, cache_root=td)
+        assert saved["filename"] == "changing_name_v99.xlsx"
+        cached = load_cached_master(cache_root=td)
+        assert cached is not None
+        cached_name, cached_bytes, cached_meta = cached
+        assert cached_name == "changing_name_v99.xlsx"
+        assert cached_bytes == payload
+        assert cached_meta["sha256"] == hashlib.sha256(payload).hexdigest()
+        clear_cached_master(cache_root=td)
+        assert load_cached_master(cache_root=td) is None
+
+    # Token verification is hash-based; tests never require the production raw researcher key.
+    unit_secret = "unit-test-secret"
+    unit_hash = hashlib.sha256(unit_secret.encode("utf-8")).hexdigest()
+    assert token_matches(unit_secret, expected_hash=unit_hash)
+    assert not token_matches("wrong-secret", expected_hash=unit_hash)
 
     # Workbook evolution is data-driven: changing metadata does not require code changes.
     frames2, _ = load_master_workbook(build_workbook(version="v2045.7", decision="DEC-2045"))
