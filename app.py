@@ -51,9 +51,15 @@ from snapshot_utils import (
     selected_nodes_tree,
     dimension_summary,
 )
+from researcher_cache import (
+    token_matches,
+    save_cached_master,
+    load_cached_master,
+    clear_cached_master,
+)
 
 
-APP_VERSION = "v0.8.2"
+APP_VERSION = "v0.9.0"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -705,11 +711,16 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
         render_data_quality(frames, structure)
 
 
+def _query_param(name: str, default: str = "") -> str:
+    value = st.query_params.get(name, default)
+    if isinstance(value, list):
+        value = value[0] if value else default
+    return str(value or default)
+
+
 def main():
-    view = st.query_params.get("view", "supervisor")
-    if isinstance(view, list):
-        view = view[0] if view else "supervisor"
-    researcher_access = str(view).strip().lower() == "researcher"
+    view = _query_param("view", "supervisor").strip().lower()
+    researcher_access = view == "researcher"
 
     if not researcher_access:
         with st.sidebar:
@@ -727,28 +738,80 @@ def main():
         render_published_supervisor(package)
         return
 
+    private_key = _query_param("key", "")
+    persistence_enabled = token_matches(private_key)
+    uploader_version = int(st.session_state.get("master_uploader_version", 0))
+    cached_entry = load_cached_master() if persistence_enabled else None
+
     with st.sidebar:
         st.markdown("## PMM Visual Tool")
         st.caption(APP_VERSION)
         st.info("Researcher workspace")
-        master = st.file_uploader("Upload current Excel MASTER (.xlsx)", type=["xlsx"], key="master_xlsx")
-        display_mode = st.radio("Display mode", ["Researcher Visual Analytics", "Supervisor Preview"], index=0)
+
+        if persistence_enabled:
+            st.success("Private refresh-safe cache enabled")
+            st.caption(
+                "The latest validated MASTER can survive browser Refresh temporarily. "
+                "It is stored outside GitHub and is never exposed in Supervisor view."
+            )
+        else:
+            st.caption(
+                "Standard researcher link: manual upload works normally, but the MASTER is not retained after browser Refresh."
+            )
+
+        master_upload = st.file_uploader(
+            "Upload current Excel MASTER (.xlsx)",
+            type=["xlsx"],
+            key=f"master_xlsx_{uploader_version}",
+        )
+
+        if persistence_enabled and cached_entry is not None:
+            cached_name, _, cached_meta = cached_entry
+            size_mb = float(cached_meta.get("size_bytes", 0)) / (1024 * 1024)
+            st.success(f"Cached MASTER: {cached_name}")
+            st.caption(f"Temporary private cache · {size_mb:.1f} MB · not stored in GitHub")
+            if st.button("Forget cached MASTER", use_container_width=True, type="secondary"):
+                clear_cached_master()
+                st.session_state["master_uploader_version"] = uploader_version + 1
+                cached_master_load.clear()
+                st.rerun()
+
+        display_mode = st.radio(
+            "Display mode",
+            ["Researcher Visual Analytics", "Supervisor Preview"],
+            index=0,
+        )
         st.markdown("---")
         st.success("Read-only: no write-back to Excel")
         st.caption("Upload any current compatible MASTER. The app is not tied to a filename or version.")
 
-    if master is None:
+    master_name = None
+    master_bytes = None
+    uploaded_now = master_upload is not None
+
+    if uploaded_now:
+        master_name = master_upload.name
+        master_bytes = master_upload.getvalue()
+    elif persistence_enabled and cached_entry is not None:
+        master_name, master_bytes, _ = cached_entry
+
+    if master_bytes is None:
         st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
         st.markdown(
             '<div class="readonly-banner"><b>Flexible researcher workflow:</b> Excel MASTER remains the analytical source of truth. '
             'Upload the latest compatible MASTER here; its filename and version may change freely.</div>',
             unsafe_allow_html=True,
         )
-        st.info("Upload the current PMM MASTER workbook from the sidebar to begin.")
+        if persistence_enabled:
+            st.info(
+                "Upload the current PMM MASTER once. After it passes validation, browser Refresh will reuse the temporary private copy."
+            )
+        else:
+            st.info("Upload the current PMM MASTER workbook from the sidebar to begin.")
         return
 
     try:
-        frames, structure = cached_master_load(master.getvalue())
+        frames, structure = cached_master_load(master_bytes)
     except Exception as exc:
         st.error(f"Could not read workbook: {exc}")
         return
@@ -758,14 +821,25 @@ def main():
         st.error("This workbook does not match the expected PMM MASTER structure.")
         for issue in issues:
             st.write(f"- {issue}")
+        if uploaded_now and persistence_enabled and cached_entry is not None:
+            st.info("The previously cached validated MASTER was not replaced.")
         return
+
+    if uploaded_now and persistence_enabled:
+        meta = save_cached_master(master_name, master_bytes)
+        cached_entry = (master_name, master_bytes, meta)
 
     snapshot = master_snapshot(frames)
     render_snapshot_header(
         snapshot,
-        master.name,
+        master_name,
         show_filename=True,
     )
+
+    if persistence_enabled:
+        st.caption(
+            "Refresh-safe researcher session is active. This temporary server cache may be cleared by a Streamlit restart/redeploy or by the Forget cached MASTER button."
+        )
 
     sanitized = snapshot_bytes(frames)
     with st.sidebar:
