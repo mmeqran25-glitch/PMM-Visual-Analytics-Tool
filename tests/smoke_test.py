@@ -9,9 +9,10 @@ import hashlib
 
 import pandas as pd
 
-from master_utils import load_master_workbook, master_snapshot, validate_master
+from master_utils import load_master_workbook, master_snapshot, validate_master, active_themes, retired_themes
 from share_utils import supervisor_share_html
-from snapshot_utils import load_supervisor_snapshot, nodes_of_type
+from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_supervisor_snapshot
+from tree_utils import build_selected_themes_tree_data
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -83,7 +84,10 @@ def build_workbook(version: str = "v99.123", decision: str = "DEC-999") -> bytes
                 "Theme_ID", "Working_Theme_Label", "Included_Cluster_IDs", "Theme_Status",
                 "Central_Organizing_Concept", "Theme_Boundary", "Closest_Competing_Theme",
             ],
-            [["THM-001", "Synthetic Theme", "PCL-001", "Stable", "Concept", "Boundary", ""]],
+            [
+                ["THM-001", "Synthetic Theme", "PCL-001", "Stable", "Concept", "Boundary", ""],
+                ["THM-016", "Embedding sustainability across project-management systems and stakeholder/supply-chain interfaces", "PCL-001", "Retired – DEC-351 functional-boundary refinement", "Historical concept", "Historical boundary", ""],
+            ],
         )
         _sheet(
             writer,
@@ -126,6 +130,27 @@ def main():
     # The presentation generator never receives a workbook filename.
     assert arbitrary_filename not in page
     assert ".xlsx" not in page.lower()
+
+    # Retired Themes remain excluded from current-state logic but can be opened explicitly for audit history.
+    current_themes = active_themes(frames)
+    history_themes = retired_themes(frames)
+    assert current_themes["Theme_ID"].astype(str).tolist() == ["THM-001"]
+    assert history_themes["Theme_ID"].astype(str).tolist() == ["THM-016"]
+
+    current_only_tree = build_selected_themes_tree_data(frames, ["THM-016"], include_retired=False)
+    assert len(current_only_tree["children"]) == 0
+
+    audit_tree = build_selected_themes_tree_data(frames, ["THM-016"], include_retired=True)
+    assert len(audit_tree["children"]) == 1
+    retired_node = audit_tree["children"][0]
+    assert retired_node["id"] == "THM-016"
+    assert "retired" in retired_node["status"].lower()
+    assert len(nodes_of_type(retired_node, "cluster")) == 1
+    assert len(nodes_of_type(retired_node, "code")) == 0
+
+    live_supervisor = build_supervisor_snapshot(frames)
+    assert len(live_supervisor.get("retired_themes", [])) == 1
+    assert live_supervisor["retired_themes"][0]["id"] == "THM-016"
 
     # Published supervisor snapshot must load from the repository without any Excel file.
     published = load_supervisor_snapshot()

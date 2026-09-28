@@ -138,6 +138,24 @@ def active_themes(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     return df.loc[mask].copy()
 
 
+def retired_themes(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Return historical retired Theme rows for optional audit-history views only.
+
+    These rows are never treated as current Themes and are excluded from all
+    current-state counts and higher-order dimension logic.
+    """
+    df = frames.get("07_Descriptive_Themes", pd.DataFrame()).copy()
+    if df.empty or "Theme_ID" not in df.columns:
+        return df
+    ids = df["Theme_ID"].fillna("").astype(str).str.strip()
+    mask = ids.str.match(r"^THM-\d{3}$", case=False, na=False)
+    if "Theme_Status" not in df.columns:
+        return df.iloc[0:0].copy()
+    status = df["Theme_Status"].fillna("").astype(str).str.strip()
+    mask &= status.str.contains("Retired", case=False, regex=True)
+    return df.loc[mask].copy()
+
+
 def active_dimensions(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Return current candidate-dimension rows only (nonblank IDs; exclude retired/rejected rows)."""
     df = frames.get("08_Candidate_Dimensions", pd.DataFrame()).copy()

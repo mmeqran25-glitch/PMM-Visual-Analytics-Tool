@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 
 import pandas as pd
 
-from master_utils import active_themes, active_dimensions, cluster_members, split_ids
+from master_utils import active_themes, retired_themes, active_dimensions, cluster_members, split_ids
 
 
 def _text(value: Any) -> str:
@@ -75,6 +75,7 @@ def build_theme_tree_data(frames: Dict[str, pd.DataFrame], theme_id: str) -> Dic
     if match.empty:
         return {}
     tr = match.iloc[0]
+    historical_theme = "retired" in _text(tr.get("Theme_Status")).lower()
     root = {
         "type": "theme",
         "id": _text(tr.get("Theme_ID")),
@@ -84,6 +85,11 @@ def build_theme_tree_data(frames: Dict[str, pd.DataFrame], theme_id: str) -> Dic
             "Central organizing concept": _text(tr.get("Central_Organizing_Concept")),
             "Theme boundary": _text(tr.get("Theme_Boundary")),
             "Closest competing theme": _text(tr.get("Closest_Competing_Theme")),
+            "Historical audit only": (
+                "Yes — retired Theme; excluded from the current Theme set and Candidate-Dimension logic."
+                if "retired" in _text(tr.get("Theme_Status")).lower()
+                else ""
+            ),
         },
         "children": [],
     }
@@ -101,10 +107,15 @@ def build_theme_tree_data(frames: Dict[str, pd.DataFrame], theme_id: str) -> Dic
                 "Inclusion boundary": _text(cr.get("Inclusion_Boundary")),
                 "Exclusion boundary": _text(cr.get("Exclusion_Boundary")),
                 "Nearest conceptual neighbours": _text(cr.get("Nearest_Conceptual_Neighbours")),
+                "Historical audit note": (
+                    "This PCL reference is read from the retired Theme row. "
+                    "Current FOC memberships are intentionally not expanded in historical audit mode."
+                    if historical_theme else ""
+                ),
             },
             "children": [],
         }
-        members = cluster_members(frames, cid)
+        members = pd.DataFrame() if historical_theme else cluster_members(frames, cid)
         if not members.empty:
             # One node per code; if duplicate mappings exist, retain first current row.
             if "Code_ID" in members.columns:
@@ -343,14 +354,30 @@ def build_candidate_stage_tree_data(
     return root
 
 
-def build_selected_themes_tree_data(frames: Dict[str, pd.DataFrame], theme_ids: List[str]) -> Dict[str, Any]:
-    """Build a flexible presentation tree for one or more selected active themes.
+def build_selected_themes_tree_data(
+    frames: Dict[str, pd.DataFrame],
+    theme_ids: List[str],
+    include_retired: bool = False,
+) -> Dict[str, Any]:
+    """Build a flexible presentation tree for selected Themes.
 
-    Root → selected Theme(s) → Cluster → Code → Evidence → Study.
-    This is presentation-only and never changes the MASTER workbook.
+    By default only current active Themes are eligible. Retired Themes can be
+    included explicitly for historical audit review; doing so never promotes
+    them back into the current Theme set or Candidate-Dimension logic.
     """
     themes = active_themes(frames)
-    available = set(themes.get("Theme_ID", pd.Series(dtype=str)).dropna().astype(str).str.strip()) if not themes.empty else set()
+    available = set(
+        themes.get("Theme_ID", pd.Series(dtype=str)).dropna().astype(str).str.strip()
+    ) if not themes.empty else set()
+
+    retired_ids = set()
+    if include_retired:
+        historical = retired_themes(frames)
+        retired_ids = set(
+            historical.get("Theme_ID", pd.Series(dtype=str)).dropna().astype(str).str.strip()
+        ) if not historical.empty else set()
+        available |= retired_ids
+
     selected = []
     seen = set()
     for tid in theme_ids or []:
@@ -359,14 +386,20 @@ def build_selected_themes_tree_data(frames: Dict[str, pd.DataFrame], theme_ids: 
             selected.append(tid)
             seen.add(tid)
 
+    historical_selected = [tid for tid in selected if tid in retired_ids]
     root = {
         "type": "group",
         "id": "SELECTED-THEMES",
         "label": f"Selected descriptive themes ({len(selected)})",
         "status": "Flexible view",
         "meta": {
-            "Purpose": "Presentation view for selecting and comparing one or more descriptive themes without implying a new analytical grouping.",
-            "Analytical status": "All theme definitions, cluster memberships, codes and evidence are read directly from the uploaded MASTER workbook.",
+            "Purpose": "Presentation view for selecting and comparing Themes without implying a new analytical grouping.",
+            "Analytical status": "Current Theme definitions are read directly from the uploaded MASTER workbook.",
+            "Retired Themes": (
+                f"{len(historical_selected)} selected for historical audit only; excluded from current higher-order structure."
+                if historical_selected
+                else "None selected."
+            ),
         },
         "children": [],
     }

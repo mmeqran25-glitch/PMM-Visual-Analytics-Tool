@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.9.1
+# PMM Visual Analytics & Presentation Tool v0.9.2
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -67,6 +67,14 @@ Adds:
 - Theme filtering uses square checkbox cards in a two-column grid.
 - Includes Select all / Clear all controls and a live selected-Theme count.
 - The same interaction model is used in Researcher and Supervisor views.
+
+## v0.9.2 retired Theme audit history
+
+- Current Themes remain the default and continue to drive all current counts and Candidate-Dimension logic.
+- A **Show retired Themes — audit history** checkbox reveals historical retired Themes in a separate section.
+- Retired Themes are clearly labelled **[RETIRED]** and **Historical audit only**.
+- Selecting a retired Theme does not reactivate it or include it in the current analytical structure.
+- Historical Theme views stop at the Theme → PCL reference level so current FOC memberships are not misrepresented as historical memberships.
 
 ## Workbook compatibility
 
