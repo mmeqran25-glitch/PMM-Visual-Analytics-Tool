@@ -716,6 +716,7 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
   const collapseBtn = document.getElementById('ocCollapse');
   let zoom = 1;
   let autoFit = true;
+  let focusedCard = null;
   const minZoom = 0.42;
   const maxZoom = 1.25;
 
@@ -740,8 +741,9 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
     }});
   }}
 
-  function fitTree() {{
+  function fitTree(anchorCard=null) {{
     autoFit = true;
+    if (anchorCard) focusedCard = anchorCard;
     root.style.zoom = '1';
     requestAnimationFrame(() => {{
       const natural = Math.max(root.scrollWidth, root.getBoundingClientRect().width || 0);
@@ -750,7 +752,10 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
       zoom = target;
       root.style.zoom = String(zoom);
       updateZoomLabel();
-      centerTree();
+      requestAnimationFrame(() => {{
+        if (focusedCard && document.body.contains(focusedCard)) centerCard(focusedCard);
+        else centerTree();
+      }});
     }});
   }}
 
@@ -765,8 +770,9 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
   }}
 
   function afterStructureChange(card) {{
+    if (card) focusedCard = card;
     setTimeout(() => {{
-      if (autoFit) fitTree();
+      if (autoFit) fitTree(card);
       else centerCard(card);
     }}, 30);
   }}
@@ -791,20 +797,38 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
     }});
   }});
 
-  if (fitBtn) fitBtn.addEventListener('click', fitTree);
-  if (centerBtn) centerBtn.addEventListener('click', centerTree);
-  if (actualBtn) actualBtn.addEventListener('click', () => {{ autoFit = false; applyZoom(1, false); centerTree(); }});
-  if (zinBtn) zinBtn.addEventListener('click', () => {{ applyZoom(zoom + 0.1, true); centerTree(); }});
-  if (zoutBtn) zoutBtn.addEventListener('click', () => {{ applyZoom(zoom - 0.1, true); centerTree(); }});
+  if (fitBtn) fitBtn.addEventListener('click', () => fitTree(focusedCard));
+  if (centerBtn) centerBtn.addEventListener('click', () => {{
+    if (focusedCard && document.body.contains(focusedCard)) centerCard(focusedCard);
+    else centerTree();
+  }});
+  if (actualBtn) actualBtn.addEventListener('click', () => {{
+    autoFit = false;
+    applyZoom(1, false);
+    if (focusedCard && document.body.contains(focusedCard)) centerCard(focusedCard);
+    else centerTree();
+  }});
+  if (zinBtn) zinBtn.addEventListener('click', () => {{
+    applyZoom(zoom + 0.1, true);
+    if (focusedCard && document.body.contains(focusedCard)) centerCard(focusedCard);
+    else centerTree();
+  }});
+  if (zoutBtn) zoutBtn.addEventListener('click', () => {{
+    applyZoom(zoom - 0.1, true);
+    if (focusedCard && document.body.contains(focusedCard)) centerCard(focusedCard);
+    else centerTree();
+  }});
 
   if (expandBtn) expandBtn.addEventListener('click', () => {{
     root.querySelectorAll('.oc-card[data-has-children="true"]').forEach(card => setExpanded(card, true, false));
-    afterStructureChange(root.querySelector('.oc-card'));
+    const anchor = focusedCard || root.querySelector('.oc-card');
+    afterStructureChange(anchor);
   }});
 
   if (collapseBtn) collapseBtn.addEventListener('click', () => {{
     root.querySelectorAll('.oc-card[data-has-children="true"]').forEach((card, idx) => setExpanded(card, idx === 0, false));
-    afterStructureChange(root.querySelector('.oc-card'));
+    focusedCard = root.querySelector('.oc-card');
+    afterStructureChange(focusedCard);
   }});
 
   // Mouse/touchpad-friendly horizontal browsing: drag anywhere in the chart background.
@@ -847,11 +871,14 @@ html, body {{ margin:0; width:100%; font-family:Inter, Segoe UI, Arial, sans-ser
   }}, {{ passive:false }});
 
   if (typeof ResizeObserver !== 'undefined') {{
-    const ro = new ResizeObserver(() => {{ if (autoFit) fitTree(); }});
+    const ro = new ResizeObserver(() => {{ if (autoFit) fitTree(focusedCard); }});
     ro.observe(viewport);
   }}
 
-  requestAnimationFrame(() => fitTree());
+  requestAnimationFrame(() => {{
+    focusedCard = root.querySelector('.oc-card');
+    fitTree(focusedCard);
+  }});
 }})();
 </script>'''
     if standalone:
