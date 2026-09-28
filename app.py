@@ -689,17 +689,26 @@ def render_published_supervisor(package: dict):
         st.subheader("Interactive Derivation Tree")
         st.caption("Presentation hierarchy: Candidate Dimension → Theme → Cluster → First-Order Code.")
 
-        style = st.radio(
+        style = card_choice(
             "View",
             ["Interactive evidence tree", "Org-chart presentation"],
-            horizontal=True,
-            key="published_tree_style",
+            key="published_tree_style_card",
+            descriptions={
+                "Interactive evidence tree": "Compact expandable evidence view.",
+                "Org-chart presentation": "Visual hierarchy with interactive cards and drill-down.",
+            },
+            default_index=1,
         )
-        scope = st.radio(
+        scope = card_choice(
             "Scope",
             ["Whole current structure", "One current Dimension", "Selected Themes"],
-            horizontal=True,
-            key="published_tree_scope",
+            key="published_tree_scope_card",
+            descriptions={
+                "Whole current structure": "Display the complete published hierarchy.",
+                "One current Dimension": "Focus on one Candidate Dimension.",
+                "Selected Themes": "Tick one or more Themes from a checkbox grid.",
+            },
+            default_index=0,
         )
 
         chosen_tree = tree
@@ -728,15 +737,18 @@ def render_published_supervisor(package: dict):
                 return
             ids = [str(t.get("id", "")) for t in themes]
             labels = {str(t.get("id", "")): str(t.get("label", "")) for t in themes}
-            selected = st.multiselect(
-                "Themes",
+            statuses = {str(t.get("id", "")): str(t.get("status", "")) for t in themes}
+            st.markdown("#### Choose Themes")
+            st.caption("Tick the square box for each Theme you want to display.")
+            selected = theme_checkbox_grid(
                 ids,
-                default=ids[: min(3, len(ids))],
-                format_func=lambda x: f"{x} — {labels.get(x, '')}",
-                key="published_themes",
+                labels,
+                key_prefix="published_theme_grid",
+                statuses=statuses,
+                default_selected=ids[:1],
             )
             if not selected:
-                st.info("Select at least one theme.")
+                st.info("Tick at least one Theme to display the tree.")
                 return
             chosen_tree = selected_nodes_tree(
                 tree,
