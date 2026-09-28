@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.8.0
+# PMM Visual Analytics & Presentation Tool v0.9.0
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -79,7 +79,8 @@ As the MASTER evolves, upload the latest compatible workbook and the application
 The deployed application now separates the two use cases:
 
 - **Default/public link**: supervisor presentation only. No Excel upload control is shown. The app reads a sanitized published snapshot containing Candidate Dimensions, Themes, active Clusters and First-Order Codes.
-- **Researcher workspace**: open the same app with `?view=researcher`. Upload any current compatible MASTER workbook for the current session. The workbook filename/version can change freely.
+- **Researcher workspace**: open the same app with `?view=researcher`. Upload any current compatible MASTER workbook. The workbook filename/version can change freely.
+- **Private refresh-safe researcher link**: use `?view=researcher&key=<private-key>`. After a workbook passes validation, the app stores a temporary private server-side copy outside GitHub so browser Refresh can reuse it. The cached MASTER can be cleared with **Forget cached MASTER** and may also disappear automatically when Streamlit restarts or redeploys.
 
 The published supervisor snapshot intentionally excludes:
 - the original XLSX workbook and workbook filename;
@@ -90,6 +91,15 @@ The published supervisor snapshot intentionally excludes:
 Residual active clusters that are not yet assigned to an active Theme remain visible under an explicit **Residual / not force-fitted** branch, so the presentation does not hide unresolved structure or force premature higher-order assignments.
 
 When the MASTER changes, regenerate/publish a new sanitized snapshot. The application code itself does not need to change merely because the workbook filename, version number, decision number, counts or memberships change.
+
+### Researcher cache privacy
+
+The refresh-safe researcher cache is intentionally separate from the public supervisor snapshot:
+- only a URL containing the private researcher key may read/write the cached MASTER;
+- only the SHA-256 hash of that key is committed to GitHub;
+- the original XLSX is stored only in temporary server storage, never in the repository;
+- invalid uploads never replace the previous validated cached MASTER;
+- the cache is temporary rather than archival storage and should not be treated as a backup.
 
 ## Windows startup
 
