@@ -62,8 +62,8 @@ from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
 
 
-APP_VERSION = "v0.11.0"
-st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
+APP_VERSION = "v0.12.0"
+st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
     """
@@ -80,6 +80,191 @@ st.markdown(
 .lineage-box {border:1px solid #d7e2ee; border-radius:13px; padding:12px 14px; background:#fbfdff; min-height:110px;}
 .lineage-title {font-weight:800; color:#12385e; margin-bottom:5px;}
 .small-muted {color:#657789; font-size:.86rem;}
+
+:root {
+  --brand-navy:#12385e;
+  --brand-teal:#0f6b78;
+  --brand-gold:#b99236;
+  --brand-line:#d8e3ec;
+}
+html, body, [class*="css"] {font-family:"Segoe UI",Tahoma,Arial,sans-serif;}
+.block-container {padding-top:.65rem; padding-bottom:3rem; max-width:1600px;}
+
+.academic-brand {
+  position:relative;
+  overflow:hidden;
+  border:1px solid #d5e1eb;
+  border-radius:22px;
+  background:
+    radial-gradient(circle at 10% 15%, rgba(185,146,54,.10), transparent 25%),
+    radial-gradient(circle at 92% 12%, rgba(15,107,120,.10), transparent 24%),
+    linear-gradient(135deg,#fbfdff 0%,#f5f9fc 55%,#ffffff 100%);
+  box-shadow:0 10px 28px rgba(18,56,94,.08);
+  padding:18px 22px 15px;
+  margin:.15rem 0 1rem 0;
+}
+.academic-brand:before {
+  content:"";
+  position:absolute;
+  top:0; left:0; right:0;
+  height:4px;
+  background:linear-gradient(90deg,#12385e 0%,#0f6b78 58%,#b99236 100%);
+}
+.brand-grid {
+  display:grid;
+  grid-template-columns:minmax(112px,155px) 1fr minmax(112px,155px);
+  gap:22px;
+  align-items:center;
+}
+.brand-logo-box {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:94px;
+}
+.brand-logo-university {max-width:145px; max-height:90px; object-fit:contain;}
+.brand-logo-engineering {max-width:92px; max-height:92px; object-fit:contain;}
+.brand-center {text-align:center; direction:rtl;}
+.brand-eyebrow {
+  color:#0f6b78;
+  font-weight:800;
+  font-size:.78rem;
+  letter-spacing:.03em;
+  margin-bottom:4px;
+}
+.brand-title {
+  color:#12385e;
+  font-size:clamp(1.3rem,2.15vw,2rem);
+  line-height:1.55;
+  font-weight:900;
+  margin:0;
+}
+.brand-subtitle {
+  color:#3d5870;
+  font-size:.97rem;
+  font-weight:650;
+  margin-top:4px;
+  direction:ltr;
+}
+.brand-meta {
+  color:#697b8c;
+  font-size:.86rem;
+  margin-top:5px;
+}
+.brand-pills {
+  display:flex;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:11px;
+  direction:ltr;
+}
+.brand-pill {
+  border:1px solid #d4e1eb;
+  background:rgba(255,255,255,.82);
+  color:#34536d;
+  border-radius:999px;
+  padding:4px 10px;
+  font-size:.73rem;
+  font-weight:750;
+  box-shadow:0 2px 8px rgba(18,56,94,.04);
+}
+.brand-status {
+  border-top:1px solid #e1e9ef;
+  margin-top:14px;
+  padding-top:10px;
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  color:#6a7c8d;
+  font-size:.78rem;
+}
+.brand-status strong {color:#274c6b;}
+
+.workspace-strip {
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  align-items:center;
+  border:1px solid #dde7ef;
+  background:#fbfdff;
+  border-radius:12px;
+  padding:9px 12px;
+  margin:.1rem 0 .8rem 0;
+}
+.workspace-strip .label {font-weight:800;color:#274c6b;}
+.workspace-strip .meta {color:#6c7d8d;font-size:.84rem;}
+
+.sidebar-identity {
+  border:1px solid #d9e4ec;
+  background:linear-gradient(145deg,#ffffff,#f5f9fc);
+  border-radius:14px;
+  padding:12px 12px 10px;
+  margin:.25rem 0 .8rem;
+}
+.sidebar-identity .si-kicker {
+  font-size:.68rem;font-weight:800;color:#0f6b78;
+  text-transform:uppercase;letter-spacing:.08em;
+}
+.sidebar-identity .si-name {
+  font-weight:850;color:#12385e;line-height:1.45;
+  margin-top:4px;direction:rtl;text-align:right;
+}
+.sidebar-identity .si-meta {
+  font-size:.76rem;color:#6c7d8d;line-height:1.55;
+  margin-top:4px;direction:rtl;text-align:right;
+}
+
+.academic-footer {
+  border-top:1px solid #dfe8ef;
+  margin-top:2.2rem;
+  padding:15px 10px 4px;
+  text-align:center;
+  color:#708191;
+  font-size:.78rem;
+  line-height:1.7;
+}
+.academic-footer strong {color:#35546d;}
+
+[data-testid="stSidebar"] {background:linear-gradient(180deg,#f8fbfd 0%,#f1f6f9 100%);}
+[data-testid="stMetric"] {
+  border:1px solid #dce6ee;
+  background:linear-gradient(155deg,#ffffff,#f8fbfd);
+  padding:11px 12px;
+  border-radius:14px;
+  box-shadow:0 4px 14px rgba(18,56,94,.035);
+}
+[data-testid="stMetricValue"] {color:#12385e;}
+div[data-testid="stExpander"] {
+  border:1px solid #dce6ee;
+  border-radius:12px;
+  background:#fcfdff;
+}
+div.stButton > button, div[data-testid="stDownloadButton"] > button {
+  border-radius:10px;
+  font-weight:700;
+}
+hr {border-color:#e3eaf0;}
+
+@media (max-width:820px) {
+  .academic-brand {padding:15px 14px 12px;}
+  .brand-grid {grid-template-columns:76px 1fr 76px;gap:8px;}
+  .brand-logo-university {max-width:76px;max-height:66px;}
+  .brand-logo-engineering {max-width:62px;max-height:62px;}
+  .brand-logo-box {min-height:70px;}
+  .brand-title {font-size:1.13rem;}
+  .brand-subtitle {font-size:.82rem;}
+  .brand-meta {font-size:.74rem;}
+  .brand-pills {display:none;}
+}
+@media (max-width:560px) {
+  .brand-grid {grid-template-columns:1fr;}
+  .brand-logo-box {min-height:auto;}
+  .brand-logo-university,.brand-logo-engineering {max-height:58px;}
+  .brand-status {justify-content:center;text-align:center;}
+}
 </style>
 """,
     unsafe_allow_html=True,
