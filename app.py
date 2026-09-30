@@ -62,7 +62,7 @@ from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
 
 
-APP_VERSION = "v0.12.0"
+APP_VERSION = "v0.12.1"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -124,6 +124,23 @@ html, body, [class*="css"] {font-family:"Segoe UI",Tahoma,Arial,sans-serif;}
 }
 .brand-logo-university {max-width:145px; max-height:90px; object-fit:contain;}
 .brand-logo-engineering {max-width:92px; max-height:92px; object-fit:contain;}
+.brand-logo-fallback {
+  display:none;
+  align-items:center;
+  justify-content:center;
+  min-width:82px;
+  min-height:68px;
+  border:1px solid #d8e3ec;
+  border-radius:14px;
+  background:rgba(255,255,255,.78);
+  color:#12385e;
+  font-weight:850;
+  font-size:.78rem;
+  line-height:1.45;
+  text-align:center;
+  direction:rtl;
+  padding:8px;
+}
 .brand-center {text-align:center; direction:rtl;}
 .brand-eyebrow {
   color:#0f6b78;
@@ -276,49 +293,43 @@ ENGINEERING_LOGO_URL = "https://su.edu.ye/ce/wp-content/uploads/sites/11/2021/07
 
 
 def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
-    """Render the shared academic identity without implying an official university system."""
+    """Render the shared academic identity without Markdown fragmenting the HTML."""
     safe_mode = html.escape(str(mode))
-    st.markdown(
-        f"""
-        <section class="academic-brand" aria-label="Master thesis academic identity">
-          <div class="brand-grid">
-            <div class="brand-logo-box">
-              <img class="brand-logo-engineering"
-                   src="{ENGINEERING_LOGO_URL}"
-                   alt="شعار كلية الهندسة - جامعة صنعاء"
-                   loading="eager">
-            </div>
-
-            <div class="brand-center">
-              <div class="brand-eyebrow">منصة بحثية أكاديمية · Academic Research Workspace</div>
-              <div class="brand-title">رسالة ماجستير للباحث – معاذ عبدالقوي عباس مقران</div>
-              <div class="brand-subtitle">PMM Visual Analytics · Evidence Traceability · Research BI</div>
-              <div class="brand-meta">جامعة صنعاء · كلية الهندسة · الدراسات العليا</div>
-              <div class="brand-pills">
-                <span class="brand-pill">PMM Analytics</span>
-                <span class="brand-pill">Evidence Traceability</span>
-                <span class="brand-pill">Research BI</span>
-                <span class="brand-pill">Read-only MASTER</span>
-              </div>
-            </div>
-
-            <div class="brand-logo-box">
-              <img class="brand-logo-university"
-                   src="{UNIVERSITY_LOGO_URL}"
-                   alt="شعار جامعة صنعاء"
-                   loading="eager">
-            </div>
-          </div>
-
-          <div class="brand-status">
-            <span><strong>{safe_mode}</strong> · {APP_VERSION}</span>
-            <span>منصة بحثية داعمة للرسالة · لا تعدّل ملف MASTER</span>
-          </div>
-        </section>
-        """,
-        unsafe_allow_html=True,
+    brand_html = (
+        '<section class="academic-brand" aria-label="Master thesis academic identity">'
+        '<div class="brand-grid">'
+        '<div class="brand-logo-box">'
+        f'<img class="brand-logo-engineering" src="{ENGINEERING_LOGO_URL}" '
+        'alt="شعار كلية الهندسة - جامعة صنعاء" loading="eager" '
+        'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">'
+        '<div class="brand-logo-fallback">كلية الهندسة<br>جامعة صنعاء</div>'
+        '</div>'
+        '<div class="brand-center">'
+        '<div class="brand-eyebrow">منصة بحثية أكاديمية · Academic Research Workspace</div>'
+        '<div class="brand-title">رسالة ماجستير للباحث – معاذ عبدالقوي عباس مقران</div>'
+        '<div class="brand-subtitle">PMM Visual Analytics · Evidence Traceability · Research BI</div>'
+        '<div class="brand-meta">جامعة صنعاء · كلية الهندسة · الدراسات العليا</div>'
+        '<div class="brand-pills">'
+        '<span class="brand-pill">PMM Analytics</span>'
+        '<span class="brand-pill">Evidence Traceability</span>'
+        '<span class="brand-pill">Research BI</span>'
+        '<span class="brand-pill">Read-only MASTER</span>'
+        '</div>'
+        '</div>'
+        '<div class="brand-logo-box">'
+        f'<img class="brand-logo-university" src="{UNIVERSITY_LOGO_URL}" '
+        'alt="شعار جامعة صنعاء" loading="eager" '
+        'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">'
+        '<div class="brand-logo-fallback">جامعة صنعاء<br>Sana\'a University</div>'
+        '</div>'
+        '</div>'
+        '<div class="brand-status">'
+        f'<span><strong>{safe_mode}</strong> · {APP_VERSION}</span>'
+        '<span>منصة بحثية داعمة للرسالة · لا تعدّل ملف MASTER</span>'
+        '</div>'
+        '</section>'
     )
-
+    st.markdown(brand_html, unsafe_allow_html=True)
 
 def render_sidebar_identity(mode: str) -> None:
     safe_mode = html.escape(str(mode))
