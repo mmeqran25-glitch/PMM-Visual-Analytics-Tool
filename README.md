@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.12.0
+# PMM Visual Analytics & Presentation Tool v0.12.1
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -148,6 +148,13 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Restyles KPI cards, sidebar, expanders and controls with a restrained academic visual system.
 - Responsive layout keeps both logos and the thesis identity readable on narrower screens.
 - The interface explicitly presents itself as a thesis/research workspace and does not imply that the application is an official university administrative system.
+
+## v0.12.1 Branding render fix
+
+- Fixes the academic header being interpreted as a Markdown code block and showing raw `<div>` / `<img>` markup.
+- Renders header, sidebar identity and footer as compact uninterrupted HTML fragments.
+- Adds graceful logo fallbacks so a temporary external image failure shows a clean university/faculty label instead of a broken-image icon.
+- Preserves the v0.12 academic identity, responsive layout and researcher/supervisor separation.
 
 ## Workbook compatibility
 
