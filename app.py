@@ -271,6 +271,82 @@ hr {border-color:#e3eaf0;}
 )
 
 
+UNIVERSITY_LOGO_URL = "https://su.edu.ye/ce/wp-content/uploads/2021/01/logo-with-name.png"
+ENGINEERING_LOGO_URL = "https://su.edu.ye/ce/wp-content/uploads/sites/11/2021/07/ce.png"
+
+
+def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
+    """Render the shared academic identity without implying an official university system."""
+    safe_mode = html.escape(str(mode))
+    st.markdown(
+        f"""
+        <section class="academic-brand" aria-label="Master thesis academic identity">
+          <div class="brand-grid">
+            <div class="brand-logo-box">
+              <img class="brand-logo-engineering"
+                   src="{ENGINEERING_LOGO_URL}"
+                   alt="شعار كلية الهندسة - جامعة صنعاء"
+                   loading="eager">
+            </div>
+
+            <div class="brand-center">
+              <div class="brand-eyebrow">منصة بحثية أكاديمية · Academic Research Workspace</div>
+              <div class="brand-title">رسالة ماجستير للباحث – معاذ عبدالقوي عباس مقران</div>
+              <div class="brand-subtitle">PMM Visual Analytics · Evidence Traceability · Research BI</div>
+              <div class="brand-meta">جامعة صنعاء · كلية الهندسة · الدراسات العليا</div>
+              <div class="brand-pills">
+                <span class="brand-pill">PMM Analytics</span>
+                <span class="brand-pill">Evidence Traceability</span>
+                <span class="brand-pill">Research BI</span>
+                <span class="brand-pill">Read-only MASTER</span>
+              </div>
+            </div>
+
+            <div class="brand-logo-box">
+              <img class="brand-logo-university"
+                   src="{UNIVERSITY_LOGO_URL}"
+                   alt="شعار جامعة صنعاء"
+                   loading="eager">
+            </div>
+          </div>
+
+          <div class="brand-status">
+            <span><strong>{safe_mode}</strong> · {APP_VERSION}</span>
+            <span>منصة بحثية داعمة للرسالة · لا تعدّل ملف MASTER</span>
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_identity(mode: str) -> None:
+    safe_mode = html.escape(str(mode))
+    st.markdown(
+        f"""
+        <div class="sidebar-identity">
+          <div class="si-kicker">Master Thesis Workspace</div>
+          <div class="si-name">الباحث: معاذ عبدالقوي عباس مقران</div>
+          <div class="si-meta">جامعة صنعاء · كلية الهندسة<br>{safe_mode} · {APP_VERSION}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_academic_footer() -> None:
+    st.markdown(
+        """
+        <footer class="academic-footer">
+          <strong>رسالة ماجستير – معاذ عبدالقوي عباس مقران</strong><br>
+          جامعة صنعاء · كلية الهندسة · منصة بحثية أكاديمية داعمة للتحليل والتتبع الدليلي<br>
+          Research workspace · Read-only analytical companion · The Excel MASTER remains the source of truth
+        </footer>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 @st.cache_data(show_spinner=False)
 def cached_master_load(file_bytes: bytes):
     return load_master_workbook(file_bytes)
