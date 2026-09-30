@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.12.5
+# PMM Visual Analytics & Presentation Tool v0.13.0
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -194,6 +194,19 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Long Country_Context and Sector_Context phrases remain unchanged in the MASTER and are exposed in a full drill-through table.
 - Adds a compact Country × Sector BI heatmap using top grouped categories rather than raw long phrases.
 - BI grouping is presentation-only and never writes classifications back to the Excel MASTER.
+
+## v0.13.0 Qualitative Visual Outputs
+
+Adds a dedicated researcher-only **Qualitative Visuals** workspace for thesis-ready qualitative displays:
+
+- **Analytical Sankey**: current Candidate Dimension → Theme → PCL/Cluster, with link width based on mapped First-Order Codes.
+- **Theme × Study Heatmap**: study support across active Themes using Evidence count, FOC count, or binary study support.
+- **Theme Co-occurrence Network**: ATLAS.ti-style network based on Themes sharing contributing studies; node size reflects study support and link width reflects the number of shared studies.
+- Plotly camera export is configured for high-resolution PNG output.
+- Heatmap data and co-occurrence edge tables can be downloaded as CSV for auditability.
+- Every visual includes a suggested thesis caption and an interpretation safeguard.
+- Retired Themes are excluded from current qualitative visuals.
+- These figures are presentation/analysis outputs only and never write back to the MASTER.
 
 ## Workbook compatibility
 
