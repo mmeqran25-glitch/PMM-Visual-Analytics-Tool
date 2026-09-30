@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import html
+from pathlib import Path
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -62,7 +64,7 @@ from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
 
 
-APP_VERSION = "v0.12.3"
+APP_VERSION = "v0.12.4"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -125,8 +127,8 @@ html, body, [class*="css"] {font-family:"Segoe UI",Tahoma,Arial,sans-serif;}
   min-height:94px;
 }
 .brand-logo-tile {
-  width:92px;
-  height:78px;
+  width:98px;
+  height:104px;
   border-radius:16px;
   border:1px solid #d8e3ec;
   background-color:rgba(255,255,255,.86);
@@ -135,7 +137,7 @@ html, body, [class*="css"] {font-family:"Segoe UI",Tahoma,Arial,sans-serif;}
   background-size:contain;
   box-shadow:0 4px 14px rgba(18,56,94,.045);
 }
-.brand-logo-tile.university {width:132px; background-size:contain;}
+.brand-logo-tile.university {width:94px; height:104px; background-size:contain;}
 .brand-logo-caption {
   color:#4c6478;
   font-size:.68rem;
@@ -271,8 +273,8 @@ hr {border-color:#e3eaf0;}
 @media (max-width:820px) {
   .academic-brand {padding:15px 14px 12px;}
   .brand-grid {grid-template-columns:76px 1fr 76px;gap:8px;}
-  .brand-logo-tile {width:64px;height:58px;}
-  .brand-logo-tile.university {width:72px;}
+  .brand-logo-tile {width:68px;height:74px;}
+  .brand-logo-tile.university {width:66px;height:74px;}
   .brand-logo-box {min-height:70px;}
   .brand-title {font-size:1.13rem;}
   .brand-subtitle {font-size:.82rem;}
@@ -282,7 +284,7 @@ hr {border-color:#e3eaf0;}
 @media (max-width:560px) {
   .brand-grid {grid-template-columns:1fr;}
   .brand-logo-box {min-height:auto;}
-  .brand-logo-tile,.brand-logo-tile.university {width:76px;height:56px;}
+  .brand-logo-tile,.brand-logo-tile.university {width:72px;height:78px;}
   .brand-status {justify-content:center;text-align:center;}
 }
 </style>
@@ -291,38 +293,32 @@ hr {border-color:#e3eaf0;}
 )
 
 
-UNIVERSITY_LOGO_URL = "https://commons.wikimedia.org/wiki/Special:Redirect/file/Sana%27a_University_Logo.jpg?width=300"
-ENGINEERING_LOGO_URL = "https://su.edu.ye/wp-content/uploads/2024/11/ce-en-300x300.png"
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+UNIVERSITY_LOGO_PATH = ASSET_DIR / "sanaa_university_logo.jpg"
+ENGINEERING_LOGO_PATH = ASSET_DIR / "faculty_engineering_logo.jpg"
 
-# Inline SVG fallbacks ensure the identity tiles never appear blank when a remote
-# logo host blocks embedding. The official/external logo stays the first layer.
-UNIVERSITY_LOGO_FALLBACK = (
-    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 120'%3E"
-    "%3Crect width='200' height='120' rx='18' fill='%23f7fbff'/%3E"
-    "%3Ccircle cx='100' cy='55' r='35' fill='none' stroke='%2312385e' stroke-width='5'/%3E"
-    "%3Cpath d='M78 61h44M84 49h32M88 73h24' stroke='%230f6b78' stroke-width='5' stroke-linecap='round'/%3E"
-    "%3Ctext x='100' y='108' text-anchor='middle' font-family='Arial' font-size='18' font-weight='700' fill='%2312385e'%3ESU%3C/text%3E"
-    "%3C/svg%3E"
-)
-ENGINEERING_LOGO_FALLBACK = (
-    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 120'%3E"
-    "%3Crect width='160' height='120' rx='18' fill='%23f7fbff'/%3E"
-    "%3Ccircle cx='80' cy='53' r='27' fill='none' stroke='%230f6b78' stroke-width='7'/%3E"
-    "%3Ccircle cx='80' cy='53' r='9' fill='%23b99236'/%3E"
-    "%3Cpath d='M80 12v14M80 80v14M39 53h14M107 53h14M51 24l10 10M99 72l10 10M109 24L99 34M61 72L51 82' stroke='%2312385e' stroke-width='7' stroke-linecap='round'/%3E"
-    "%3Ctext x='80' y='112' text-anchor='middle' font-family='Arial' font-size='16' font-weight='700' fill='%2312385e'%3EFE%3C/text%3E"
-    "%3C/svg%3E"
-)
+
+@st.cache_data(show_spinner=False)
+def _local_image_data_uri(path_str: str) -> str:
+    """Embed a repository-local image so branding never depends on an external host."""
+    path = Path(path_str)
+    if not path.exists():
+        return ""
+    mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
 
 def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
-    """Render the shared academic identity with background-image logo tiles."""
+    """Render the shared academic identity using the researcher-supplied local logos."""
     safe_mode = html.escape(str(mode))
+    university_logo = _local_image_data_uri(str(UNIVERSITY_LOGO_PATH))
+    engineering_logo = _local_image_data_uri(str(ENGINEERING_LOGO_PATH))
     brand_html = (
         '<section class="academic-brand" aria-label="Master thesis academic identity">'
         '<div class="brand-grid">'
         '<div class="brand-logo-box">'
-        f'<div class="brand-logo-tile" style="background-image:url(&quot;{ENGINEERING_LOGO_URL}&quot;),url(&quot;{ENGINEERING_LOGO_FALLBACK}&quot;);"></div>'
+        f'<div class="brand-logo-tile" style="background-image:url(&quot;{engineering_logo}&quot;);"></div>'
         '<div class="brand-logo-caption">كلية الهندسة<br>Faculty of Engineering</div>'
         '</div>'
         '<div class="brand-center">'
@@ -338,7 +334,7 @@ def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
         '</div>'
         '</div>'
         '<div class="brand-logo-box">'
-        f'<div class="brand-logo-tile university" style="background-image:url(&quot;{UNIVERSITY_LOGO_URL}&quot;),url(&quot;{UNIVERSITY_LOGO_FALLBACK}&quot;);"></div>'
+        f'<div class="brand-logo-tile university" style="background-image:url(&quot;{university_logo}&quot;);"></div>'
         '<div class="brand-logo-caption">جامعة صنعاء<br>Sana\'a University</div>'
         '</div>'
         '</div>'
