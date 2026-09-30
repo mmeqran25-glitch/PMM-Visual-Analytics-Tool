@@ -333,29 +333,25 @@ def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
 
 def render_sidebar_identity(mode: str) -> None:
     safe_mode = html.escape(str(mode))
-    st.markdown(
-        f"""
-        <div class="sidebar-identity">
-          <div class="si-kicker">Master Thesis Workspace</div>
-          <div class="si-name">الباحث: معاذ عبدالقوي عباس مقران</div>
-          <div class="si-meta">جامعة صنعاء · كلية الهندسة<br>{safe_mode} · {APP_VERSION}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    sidebar_html = (
+        '<div class="sidebar-identity">'
+        '<div class="si-kicker">Master Thesis Workspace</div>'
+        '<div class="si-name">الباحث: معاذ عبدالقوي عباس مقران</div>'
+        f'<div class="si-meta">جامعة صنعاء · كلية الهندسة<br>{safe_mode} · {APP_VERSION}</div>'
+        '</div>'
     )
+    st.markdown(sidebar_html, unsafe_allow_html=True)
 
 
 def render_academic_footer() -> None:
-    st.markdown(
-        """
-        <footer class="academic-footer">
-          <strong>رسالة ماجستير – معاذ عبدالقوي عباس مقران</strong><br>
-          جامعة صنعاء · كلية الهندسة · منصة بحثية أكاديمية داعمة للتحليل والتتبع الدليلي<br>
-          Research workspace · Read-only analytical companion · The Excel MASTER remains the source of truth
-        </footer>
-        """,
-        unsafe_allow_html=True,
+    footer_html = (
+        '<footer class="academic-footer">'
+        '<strong>رسالة ماجستير – معاذ عبدالقوي عباس مقران</strong><br>'
+        'جامعة صنعاء · كلية الهندسة · منصة بحثية أكاديمية داعمة للتحليل والتتبع الدليلي<br>'
+        'Research workspace · Read-only analytical companion · The Excel MASTER remains the source of truth'
+        '</footer>'
     )
+    st.markdown(footer_html, unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False)
