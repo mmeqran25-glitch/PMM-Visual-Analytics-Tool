@@ -88,7 +88,7 @@ st.markdown(
   --brand-line:#d8e3ec;
 }
 html, body, [class*="css"] {font-family:"Segoe UI",Tahoma,Arial,sans-serif;}
-.block-container {padding-top:.65rem; padding-bottom:3rem; max-width:1600px;}
+.block-container {padding-top:2.85rem !important; padding-bottom:3rem; max-width:1600px;}
 
 .academic-brand {
   position:relative;
