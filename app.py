@@ -96,6 +96,13 @@ def cached_supervisor_snapshot_bytes(file_bytes: bytes) -> bytes:
     return snapshot_bytes(frames)
 
 
+@st.cache_data(show_spinner=False)
+def cached_supervisor_package(file_bytes: bytes) -> dict:
+    """Build Supervisor Preview data once per workbook."""
+    frames, _ = cached_master_load(file_bytes)
+    return build_supervisor_snapshot(frames)
+
+
 def prune_tree_depth(node: dict, max_depth: int, depth: int = 0) -> dict:
     """Copy only the hierarchy needed by the current visual scope.
 
@@ -828,9 +835,16 @@ def render_published_supervisor(package: dict):
         unsafe_allow_html=True,
     )
 
-    tabs = st.tabs(["Overview", "Derivation Tree", "Dimensions"])
+    section = st.radio(
+        "Supervisor section",
+        ["Overview", "Derivation Tree", "Dimensions"],
+        horizontal=True,
+        key="published_supervisor_section",
+        label_visibility="collapsed",
+    )
+    st.divider()
 
-    with tabs[0]:
+    if section == "Overview":
         st.subheader("Current Analytical Checkpoint")
         c1, c2, c3, c4 = st.columns(4)
         if snapshot.get("completed") is not None and snapshot.get("target"):
@@ -855,7 +869,7 @@ def render_published_supervisor(package: dict):
             "The application is not tied to a workbook filename or version number."
         )
 
-    with tabs[1]:
+    elif section == "Derivation Tree":
         st.subheader("Interactive Derivation Tree")
         st.caption("Presentation hierarchy: Candidate Dimension → Theme → Cluster → First-Order Code.")
 
@@ -963,14 +977,22 @@ def render_published_supervisor(package: dict):
         if style == "Interactive evidence tree":
             components.html(tree_html(chosen_tree, title), height=900, scrolling=True)
         else:
-            components.html(org_chart_html(chosen_tree, title, max_depth=99), height=900, scrolling=True)
+            depth_limit = 3
+            if scope == "Whole current structure":
+                depth_limit = 3
+            display_tree = prune_tree_depth(chosen_tree, depth_limit)
+            components.html(
+                org_chart_html(display_tree, title, max_depth=depth_limit),
+                height=900,
+                scrolling=True,
+            )
 
         st.caption(
             "Search by IDs such as PCL-038, THM-008 or DIM-001. "
             "Source-near Meaning Units are intentionally excluded from this supervisor snapshot."
         )
 
-    with tabs[2]:
+    else:
         st.subheader("Current Candidate Dimensions")
         rows = dimension_summary(tree)
         if rows:
@@ -1193,7 +1215,7 @@ def main():
         )
 
     if display_mode == "Supervisor Preview":
-        package = build_supervisor_snapshot(frames)
+        package = cached_supervisor_package(master_bytes)
         render_published_supervisor(package)
     else:
         render_researcher_mode(frames, snapshot, structure)
