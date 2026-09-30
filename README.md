@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.9.4
+# PMM Visual Analytics & Presentation Tool v0.10.0
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -92,6 +92,14 @@ Adds:
 - Downloadable HTML is generated only when explicitly requested, avoiding a second full chart build on every rerun.
 - Supervisor Preview uses the same cached package and single-section navigation.
 - Candidate-dimension selection excludes Historical/Superseded/Suspended rows and can recover the latest audited working SG4 candidate set when a workbook retains older dimension generations for audit history.
+
+## v0.10.0 Dimension traceability Excel export
+
+- The Traceability page can export any selected current Candidate Dimension to a standalone XLSX workbook.
+- Export lineage: **Dimension → Theme → PCL/Cluster → First-Order Code → Meaning Unit → Study**.
+- The workbook contains: Export Info, Full Trace, Themes, Clusters/PCLs, FOCs, Studies and a hierarchical Tree Index.
+- The export is generated on demand and never writes back to the analytical MASTER.
+- Long verbatim evidence is Excel-safe and the workbook preserves current mapping/status fields for audit review.
 
 ## Workbook compatibility
 
