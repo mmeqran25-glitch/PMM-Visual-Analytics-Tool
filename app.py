@@ -62,7 +62,7 @@ from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
 
 
-APP_VERSION = "v0.12.2"
+APP_VERSION = "v0.12.3"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -294,6 +294,26 @@ hr {border-color:#e3eaf0;}
 UNIVERSITY_LOGO_URL = "https://commons.wikimedia.org/wiki/Special:Redirect/file/Sana%27a_University_Logo.jpg?width=300"
 ENGINEERING_LOGO_URL = "https://su.edu.ye/wp-content/uploads/2024/11/ce-en-300x300.png"
 
+# Inline SVG fallbacks ensure the identity tiles never appear blank when a remote
+# logo host blocks embedding. The official/external logo stays the first layer.
+UNIVERSITY_LOGO_FALLBACK = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 120'%3E"
+    "%3Crect width='200' height='120' rx='18' fill='%23f7fbff'/%3E"
+    "%3Ccircle cx='100' cy='55' r='35' fill='none' stroke='%2312385e' stroke-width='5'/%3E"
+    "%3Cpath d='M78 61h44M84 49h32M88 73h24' stroke='%230f6b78' stroke-width='5' stroke-linecap='round'/%3E"
+    "%3Ctext x='100' y='108' text-anchor='middle' font-family='Arial' font-size='18' font-weight='700' fill='%2312385e'%3ESU%3C/text%3E"
+    "%3C/svg%3E"
+)
+ENGINEERING_LOGO_FALLBACK = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 120'%3E"
+    "%3Crect width='160' height='120' rx='18' fill='%23f7fbff'/%3E"
+    "%3Ccircle cx='80' cy='53' r='27' fill='none' stroke='%230f6b78' stroke-width='7'/%3E"
+    "%3Ccircle cx='80' cy='53' r='9' fill='%23b99236'/%3E"
+    "%3Cpath d='M80 12v14M80 80v14M39 53h14M107 53h14M51 24l10 10M99 72l10 10M109 24L99 34M61 72L51 82' stroke='%2312385e' stroke-width='7' stroke-linecap='round'/%3E"
+    "%3Ctext x='80' y='112' text-anchor='middle' font-family='Arial' font-size='16' font-weight='700' fill='%2312385e'%3EFE%3C/text%3E"
+    "%3C/svg%3E"
+)
+
 
 def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
     """Render the shared academic identity with background-image logo tiles."""
@@ -302,7 +322,7 @@ def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
         '<section class="academic-brand" aria-label="Master thesis academic identity">'
         '<div class="brand-grid">'
         '<div class="brand-logo-box">'
-        f'<div class="brand-logo-tile" style="background-image:url(&quot;{ENGINEERING_LOGO_URL}&quot;);"></div>'
+        f'<div class="brand-logo-tile" style="background-image:url(&quot;{ENGINEERING_LOGO_URL}&quot;),url(&quot;{ENGINEERING_LOGO_FALLBACK}&quot;);"></div>'
         '<div class="brand-logo-caption">كلية الهندسة<br>Faculty of Engineering</div>'
         '</div>'
         '<div class="brand-center">'
@@ -318,7 +338,7 @@ def render_academic_brand_header(mode: str = "Researcher workspace") -> None:
         '</div>'
         '</div>'
         '<div class="brand-logo-box">'
-        f'<div class="brand-logo-tile university" style="background-image:url(&quot;{UNIVERSITY_LOGO_URL}&quot;);"></div>'
+        f'<div class="brand-logo-tile university" style="background-image:url(&quot;{UNIVERSITY_LOGO_URL}&quot;),url(&quot;{UNIVERSITY_LOGO_FALLBACK}&quot;);"></div>'
         '<div class="brand-logo-caption">جامعة صنعاء<br>Sana\'a University</div>'
         '</div>'
         '</div>'
