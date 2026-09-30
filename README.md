@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.11.0
+# PMM Visual Analytics & Presentation Tool v0.12.0
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -136,6 +136,18 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Drill-through tables expose the studies behind every current filter.
 - BI methodology/publication groupings are display categories only; original workbook wording remains unchanged.
 - The dashboard never writes back to the MASTER.
+
+## v0.12.0 Academic thesis identity and interface polish
+
+- Adds a shared academic identity header to Researcher and Supervisor views.
+- Main Arabic title: **رسالة ماجستير للباحث – معاذ عبدالقوي عباس مقران**.
+- Uses the official Sana'a University and Faculty of Engineering logo assets hosted on the university domain.
+- Adds a responsive academic header with research-purpose badges, current workspace mode and app version.
+- Adds a compact researcher identity card in the sidebar and an academic footer.
+- Replaces repeated large application titles with compact workspace strips to preserve vertical space for charts and derivation trees.
+- Restyles KPI cards, sidebar, expanders and controls with a restrained academic visual system.
+- Responsive layout keeps both logos and the thesis identity readable on narrower screens.
+- The interface explicitly presents itself as a thesis/research workspace and does not imply that the application is an official university administrative system.
 
 ## Workbook compatibility
 
