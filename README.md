@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.9.3
+# PMM Visual Analytics & Presentation Tool v0.9.4
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -83,6 +83,15 @@ Adds:
 - Includes Select all current / Clear current controls and a selected-Theme count.
 - Retired Themes remain inside the same dropdown under the optional **Show retired Themes — audit history** section.
 - The same compact Theme selector is used in Researcher and Supervisor views.
+
+## v0.9.4 performance and current-structure fixes
+
+- Researcher navigation now executes only the section being viewed instead of recalculating all eight pages on every Streamlit rerun.
+- Sanitized supervisor snapshot generation is cached per workbook instead of being rebuilt after every Theme/filter click.
+- Org-chart rendering is depth-limited by scope: the whole-structure view stops at Cluster/PCL, while focused Dimension/Theme views continue to First-Order Code. Meaning Unit and Study drill-down remains available in the interactive evidence tree.
+- Downloadable HTML is generated only when explicitly requested, avoiding a second full chart build on every rerun.
+- Supervisor Preview uses the same cached package and single-section navigation.
+- Candidate-dimension selection excludes Historical/Superseded/Suspended rows and can recover the latest audited working SG4 candidate set when a workbook retains older dimension generations for audit history.
 
 ## Workbook compatibility
 
