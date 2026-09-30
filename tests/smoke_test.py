@@ -8,11 +8,13 @@ import gzip
 import hashlib
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from master_utils import load_master_workbook, master_snapshot, validate_master, active_themes, retired_themes, active_dimensions
 from share_utils import supervisor_share_html
 from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_supervisor_snapshot
 from tree_utils import build_selected_themes_tree_data
+from dimension_export import dimension_trace_workbook_bytes
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -199,6 +201,42 @@ def main():
     assert current_dims.iloc[0]["Dimension_Status"] == "PASS – PROVISIONAL"
     assert current_dims.iloc[0]["Supporting_Theme_IDs"] == "THM-001; THM-002"
     assert current_dims.iloc[0]["Underlying_Cluster_IDs"] == "PCL-001; PCL-002"
+
+    # Selected Dimension can be exported as a complete Excel traceability package.
+    export_bytes, export_summary = dimension_trace_workbook_bytes(frames, "DIM-001")
+    assert export_summary["Dimension_ID"] == "DIM-001"
+    assert export_summary["Theme_Count"] == 1
+    assert export_summary["Cluster_Count"] == 1
+    assert export_summary["FOC_Count"] == 1
+    assert export_summary["Evidence_Count"] == 1
+    assert export_summary["Study_Count"] == 1
+
+    export_wb = load_workbook(BytesIO(export_bytes), read_only=True, data_only=False)
+    assert export_wb.sheetnames == [
+        "00_Export_Info",
+        "01_Full_Trace",
+        "02_Themes",
+        "03_Clusters",
+        "04_FOCs",
+        "05_Studies",
+        "06_Tree_Index",
+    ]
+    trace_ws = export_wb["01_Full_Trace"]
+    headers = [cell.value for cell in next(trace_ws.iter_rows(min_row=1, max_row=1))]
+    first_row = [cell.value for cell in next(trace_ws.iter_rows(min_row=2, max_row=2))]
+    trace = dict(zip(headers, first_row))
+    assert trace["Dimension_ID"] == "DIM-001"
+    assert trace["Theme_ID"] == "THM-001"
+    assert trace["Cluster_ID"] == "PCL-001"
+    assert trace["Code_ID"] == "CD-SR001-001"
+    assert trace["Evidence_ID"] == "EV001"
+    assert trace["Study_ID"] == "SR001"
+    assert trace["Meaning_Unit_Verbatim"] == "Synthetic evidence"
+
+    tree_ws = export_wb["06_Tree_Index"]
+    tree_values = list(tree_ws.iter_rows(min_row=2, values_only=True))
+    tree_types = {row[1] for row in tree_values}
+    assert {"Dimension", "Theme", "Cluster", "First-Order Code", "Meaning Unit", "Study"}.issubset(tree_types)
 
     # Published supervisor snapshot must load from the repository without any Excel file.
     published = load_supervisor_snapshot()
