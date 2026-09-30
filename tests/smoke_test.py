@@ -163,6 +163,9 @@ def main():
     assert "render_sidebar_identity" in app_source
     assert "render_academic_footer" in app_source
     assert "brand-logo-tile" in app_source
+    assert "padding-top:2.85rem !important" in app_source
+    assert "UNIVERSITY_LOGO_FALLBACK" in app_source
+    assert "ENGINEERING_LOGO_FALLBACK" in app_source
     assert "background-image:url" in app_source
     assert "commons.wikimedia.org/wiki/Special:Redirect/file/Sana%27a_University_Logo.jpg" in app_source
     assert "su.edu.ye/wp-content/uploads/2024/11/ce-en-300x300.png" in app_source

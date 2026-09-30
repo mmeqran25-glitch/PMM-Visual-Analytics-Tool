@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.12.2
+# PMM Visual Analytics & Presentation Tool v0.12.3
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -162,6 +162,14 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Uses a Wikimedia-hosted Sana'a University logo for reliable public rendering and the current official Sana'a University Faculty of Engineering image path.
 - Keeps visible bilingual captions under both logo areas even if an image source is temporarily unavailable.
 - Preserves the responsive academic header and all v0.12 branding.
+
+## v0.12.3 Header safe-area and guaranteed identity marks
+
+- Adds a safe top offset so the academic eyebrow and thesis title never sit underneath Streamlit's fixed top toolbar.
+- Gives the academic header slightly more breathing room at the top.
+- Adds inline SVG fallback marks behind both remote logos. If an external host blocks the real image, the tile still shows a clean university/engineering identity mark instead of an empty white box.
+- Keeps the external official/public logo URL as the first visual layer when it is available.
+- No analytical or workbook logic changed.
 
 ## Workbook compatibility
 
