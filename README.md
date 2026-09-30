@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.12.3
+# PMM Visual Analytics & Presentation Tool v0.12.4
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -170,6 +170,21 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Adds inline SVG fallback marks behind both remote logos. If an external host blocks the real image, the tile still shows a clean university/engineering identity mark instead of an empty white box.
 - Keeps the external official/public logo URL as the first visual layer when it is available.
 - No analytical or workbook logic changed.
+
+## v0.12.4 Embedded researcher-supplied university branding
+
+- Replaces all remote/fallback logo sources with the exact Sana'a University and Faculty of Engineering logos supplied by the researcher.
+- Stores optimized local copies in `assets/` so branding does not depend on Wikimedia, university hotlinking, network availability or browser cross-site image policy.
+- Embeds the local images as data URIs at runtime, keeping the existing academic header fully self-contained.
+- Adjusts logo tiles for the taller shield-style logos.
+- No analytical, BI, traceability or workbook logic changed.
+
+### Time & Context display correction
+
+- Removes the former hard-coded Top-12 limit from the Time & Context Explorer.
+- Country/context and sector-context charts now default to **All** populated values under the active filters.
+- Optional display controls allow **Top 10 / Top 20 / Top 30** when a compact presentation is preferred.
+- The chart caption reports how many populated context values are available and explicitly excludes blank cells from plotted categories.
 
 ## Workbook compatibility
 

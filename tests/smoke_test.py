@@ -15,7 +15,7 @@ from share_utils import supervisor_share_html
 from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_supervisor_snapshot
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
-from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness
+from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -164,11 +164,11 @@ def main():
     assert "render_academic_footer" in app_source
     assert "brand-logo-tile" in app_source
     assert "padding-top:2.85rem !important" in app_source
-    assert "UNIVERSITY_LOGO_FALLBACK" in app_source
-    assert "ENGINEERING_LOGO_FALLBACK" in app_source
-    assert "background-image:url" in app_source
-    assert "commons.wikimedia.org/wiki/Special:Redirect/file/Sana%27a_University_Logo.jpg" in app_source
-    assert "su.edu.ye/wp-content/uploads/2024/11/ce-en-300x300.png" in app_source
+    assert "_local_image_data_uri" in app_source
+    assert 'ASSET_DIR / "sanaa_university_logo.jpg"' in app_source
+    assert 'ASSET_DIR / "faculty_engineering_logo.jpg"' in app_source
+    assert (Path("assets") / "sanaa_university_logo.jpg").exists()
+    assert (Path("assets") / "faculty_engineering_logo.jpg").exists()
 
     arbitrary_filename = "THIS_NAME_CAN_CHANGE_EVERY_DAY_v2045.xlsx"
     payload = build_workbook()
@@ -298,6 +298,14 @@ def main():
     assert not completeness.empty
     assert float(completeness.loc[completeness["Field"] == "Country_Context", "Percent"].iloc[0]) == 100.0
     assert float(completeness.loc[completeness["Field"] == "Sector_Context", "Percent"].iloc[0]) == 100.0
+
+    context_counts = pd.DataFrame({
+        "Country_Context": ["A", "B", "C", "D"],
+        "Studies": [10, 8, 6, 4],
+    })
+    assert len(_apply_context_display_limit(context_counts, "All")) == 4
+    assert len(_apply_context_display_limit(context_counts, "Top 10")) == 4
+    assert len(_apply_context_display_limit(context_counts, "Top 2")) == 2
 
     novelty = novelty_study_rows(frames, ["SR001"])
     assert len(novelty) == 1
