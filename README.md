@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.10.0
+# PMM Visual Analytics & Presentation Tool v0.11.0
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -100,6 +100,42 @@ Adds:
 - The workbook contains: Export Info, Full Trace, Themes, Clusters/PCLs, FOCs, Studies and a hierarchical Tree Index.
 - The export is generated on demand and never writes back to the analytical MASTER.
 - Long verbatim evidence is Excel-safe and the workbook preserves current mapping/status fields for audit review.
+
+## v0.11.0 Research Evidence BI Dashboard
+
+Adds a dedicated researcher-only BI workspace that describes the evidence corpus rather than the Dimension hierarchy.
+
+### Research Corpus Overview
+- separates Source records, Profiled Studies, Evidence Contributors and Pass Contributors;
+- analytical funnel from current filter → Eligible → Evidence contributors → Pass contributors;
+- study-profile metadata completeness;
+- publication-year and sector-context summaries.
+
+### Time & Context Explorer
+- studies by year and cumulative corpus growth;
+- methodological-family trends over time;
+- top country and sector contexts;
+- Country × Sector coverage matrix;
+- explicit warnings when context metadata are incomplete.
+
+### Evidence & Quality
+- study-level eligibility distribution;
+- evidence-level Pass / Supporting / Architecture gate distribution;
+- top Pass-evidence contributors;
+- Pareto contribution view;
+- QA score × evidence contribution scatter.
+
+### Novelty & Stability
+- study-level novelty/reinforcement events over extraction order;
+- New FOC / New Cluster / Boundary Change / Split-Merge / Reinforcement tracking;
+- cumulative structural novelty;
+- explicit safeguard that the view is not an automatic saturation claim.
+
+### BI safeguards
+- Dashboard filters include Study Universe, year, country, sector, methodology and publication grouping.
+- Drill-through tables expose the studies behind every current filter.
+- BI methodology/publication groupings are display categories only; original workbook wording remains unchanged.
+- The dashboard never writes back to the MASTER.
 
 ## Workbook compatibility
 
