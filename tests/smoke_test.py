@@ -164,11 +164,11 @@ def main():
     assert "render_academic_footer" in app_source
     assert "brand-logo-tile" in app_source
     assert "padding-top:2.85rem !important" in app_source
-    assert "UNIVERSITY_LOGO_FALLBACK" in app_source
-    assert "ENGINEERING_LOGO_FALLBACK" in app_source
-    assert "background-image:url" in app_source
-    assert "commons.wikimedia.org/wiki/Special:Redirect/file/Sana%27a_University_Logo.jpg" in app_source
-    assert "su.edu.ye/wp-content/uploads/2024/11/ce-en-300x300.png" in app_source
+    assert "_local_image_data_uri" in app_source
+    assert 'ASSET_DIR / "sanaa_university_logo.jpg"' in app_source
+    assert 'ASSET_DIR / "faculty_engineering_logo.jpg"' in app_source
+    assert (Path("assets") / "sanaa_university_logo.jpg").exists()
+    assert (Path("assets") / "faculty_engineering_logo.jpg").exists()
 
     arbitrary_filename = "THIS_NAME_CAN_CHANGE_EVERY_DAY_v2045.xlsx"
     payload = build_workbook()
