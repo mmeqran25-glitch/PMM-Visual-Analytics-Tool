@@ -179,6 +179,13 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Adjusts logo tiles for the taller shield-style logos.
 - No analytical, BI, traceability or workbook logic changed.
 
+### Time & Context display correction
+
+- Removes the former hard-coded Top-12 limit from the Time & Context Explorer.
+- Country/context and sector-context charts now default to **All** populated values under the active filters.
+- Optional display controls allow **Top 10 / Top 20 / Top 30** when a compact presentation is preferred.
+- The chart caption reports how many populated context values are available and explicitly excludes blank cells from plotted categories.
+
 ## Workbook compatibility
 
 The application is intentionally **version-agnostic**. It is not tied to a specific MASTER filename, version number, decision number, or fixed analytical counts.
