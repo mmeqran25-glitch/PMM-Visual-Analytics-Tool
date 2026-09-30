@@ -60,7 +60,7 @@ from researcher_cache import (
 )
 
 
-APP_VERSION = "v0.9.3"
+APP_VERSION = "v0.9.4"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -87,6 +87,34 @@ st.markdown(
 @st.cache_data(show_spinner=False)
 def cached_master_load(file_bytes: bytes):
     return load_master_workbook(file_bytes)
+
+
+@st.cache_data(show_spinner=False)
+def cached_supervisor_snapshot_bytes(file_bytes: bytes) -> bytes:
+    """Build the sanitized supervisor snapshot once per workbook, not on every UI click."""
+    frames, _ = cached_master_load(file_bytes)
+    return snapshot_bytes(frames)
+
+
+def prune_tree_depth(node: dict, max_depth: int, depth: int = 0) -> dict:
+    """Copy only the hierarchy needed by the current visual scope.
+
+    This keeps large Evidence/Study subtrees out of the browser DOM while leaving
+    the analytical MASTER untouched.
+    """
+    if not node:
+        return {}
+    out = {k: v for k, v in node.items() if k != "children"}
+    children = node.get("children", []) or []
+    if depth >= max_depth:
+        out["children"] = []
+    else:
+        out["children"] = [
+            prune_tree_depth(child, max_depth, depth + 1)
+            for child in children
+            if child
+        ]
+    return out
 
 
 def clipped(value, n=220):
@@ -483,14 +511,50 @@ def render_derivation_tree(frames: dict, supervisor: bool = True):
     if not tree_data:
         st.info("No tree data available for this scope.")
         return
+
     if style == "Interactive evidence tree":
-        components.html(tree_html(tree_data, title), height=900, scrolling=True)
-        data = tree_html(tree_data, title, standalone=True).encode("utf-8")
-        st.download_button("Download this evidence tree as HTML", data=data, file_name="PMM_Evidence_Tree.html", mime="text/html")
+        chart_html = tree_html(tree_data, title)
+        components.html(chart_html, height=900, scrolling=True)
+        with st.expander("Export this evidence tree"):
+            if st.checkbox("Prepare downloadable HTML", key=f"prepare_evidence_export_{supervisor}"):
+                data = tree_html(tree_data, title, standalone=True).encode("utf-8")
+                st.download_button(
+                    "Download this evidence tree as HTML",
+                    data=data,
+                    file_name="PMM_Evidence_Tree.html",
+                    mime="text/html",
+                )
     else:
-        components.html(org_chart_html(tree_data, title, max_depth=99), height=900, scrolling=True)
-        data = org_chart_html(tree_data, title, max_depth=99, standalone=True).encode("utf-8")
-        st.download_button("Download this org chart as HTML", data=data, file_name="PMM_Org_Chart.html", mime="text/html")
+        # Keep the browser DOM intentionally small. The whole-structure view is
+        # an overview down to PCL; focused Dimension/Theme views go down to FOC.
+        # Full Evidence → Study traceability remains available in the evidence tree.
+        depth_limit = 3
+        if scope == "Whole current structure":
+            depth_limit = 3  # stage → dimension → theme → cluster
+        elif scope in {"One current Dimension", "Selected Themes"}:
+            depth_limit = 3  # root → theme → cluster → FOC (or dimension equivalent)
+
+        display_tree = prune_tree_depth(tree_data, depth_limit)
+        chart_html = org_chart_html(display_tree, title, max_depth=depth_limit)
+        components.html(chart_html, height=900, scrolling=True)
+        st.caption(
+            "Performance mode: Org-chart renders only the hierarchy needed for this scope. "
+            "Use Interactive evidence tree for Meaning Unit and Study-level drill-down."
+        )
+        with st.expander("Export this org chart"):
+            if st.checkbox("Prepare downloadable HTML", key=f"prepare_org_export_{supervisor}"):
+                data = org_chart_html(
+                    display_tree,
+                    title,
+                    max_depth=depth_limit,
+                    standalone=True,
+                ).encode("utf-8")
+                st.download_button(
+                    "Download this org chart as HTML",
+                    data=data,
+                    file_name="PMM_Org_Chart.html",
+                    mime="text/html",
+                )
 
 
 def render_traceability(frames: dict):
@@ -943,7 +1007,14 @@ def render_supervisor_mode(frames: dict, snapshot: dict):
 
 
 def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
-    tabs = st.tabs([
+    """Render only the active researcher section.
+
+    Streamlit tabs execute every tab body on every rerun. With a large MASTER
+    that made a Theme click recompute all eight analytical pages. A single
+    horizontal section selector keeps the familiar navigation while executing
+    only the page the researcher is actually viewing.
+    """
+    sections = [
         "Current State",
         "SG2 Review",
         "Themes & Dimensions",
@@ -952,22 +1023,31 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
         "Traceability",
         "Stability",
         "Data Quality",
-    ])
-    with tabs[0]:
+    ]
+    section = st.radio(
+        "Researcher section",
+        sections,
+        horizontal=True,
+        key="researcher_active_section",
+        label_visibility="collapsed",
+    )
+    st.divider()
+
+    if section == "Current State":
         render_executive_snapshot(frames, snapshot)
-    with tabs[1]:
+    elif section == "SG2 Review":
         render_sg2_review(frames)
-    with tabs[2]:
+    elif section == "Themes & Dimensions":
         render_higher_order_review(frames)
-    with tabs[3]:
+    elif section == "Evidence Integrity":
         render_evidence_integrity(frames)
-    with tabs[4]:
+    elif section == "Derivation Tree":
         render_derivation_tree(frames, supervisor=False)
-    with tabs[5]:
+    elif section == "Traceability":
         render_traceability(frames)
-    with tabs[6]:
+    elif section == "Stability":
         render_results_stability(frames)
-    with tabs[7]:
+    else:
         render_data_quality(frames, structure)
 
 
@@ -1101,7 +1181,7 @@ def main():
             "Refresh-safe researcher session is active. This temporary server cache may be cleared by a Streamlit restart/redeploy or by the Forget cached MASTER button."
         )
 
-    sanitized = snapshot_bytes(frames)
+    sanitized = cached_supervisor_snapshot_bytes(master_bytes)
     with st.sidebar:
         st.download_button(
             "Download sanitized supervisor snapshot",
