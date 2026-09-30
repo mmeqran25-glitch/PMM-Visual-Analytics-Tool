@@ -447,7 +447,7 @@ def render_derivation_tree(frames: dict, supervisor: bool = True):
         descriptions={
             "Whole current structure": "Display the complete current hierarchy.",
             "One current Dimension": "Focus on a single Candidate Dimension.",
-            "Selected Themes": "Tick one or more Themes from a checkbox grid.",
+            "Selected Themes": "Open the compact Theme dropdown and tick one or more Themes.",
         },
         default_index=0,
     )
@@ -890,7 +890,7 @@ def render_published_supervisor(package: dict):
             descriptions={
                 "Whole current structure": "Display the complete published hierarchy.",
                 "One current Dimension": "Focus on one Candidate Dimension.",
-                "Selected Themes": "Tick one or more Themes from a checkbox grid.",
+                "Selected Themes": "Open the compact Theme dropdown and tick one or more Themes.",
             },
             default_index=0,
         )
