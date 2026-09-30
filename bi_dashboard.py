@@ -390,7 +390,7 @@ def render_dashboard_filters(catalog: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
                 min_value=lo,
                 max_value=hi,
                 value=(lo, hi),
-                key="bi_year_range",
+                key=f"bi_year_range_{universe}",
             )
 
     with st.expander("More filters", expanded=False):
@@ -398,23 +398,23 @@ def render_dashboard_filters(catalog: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
         countries = f1.multiselect(
             "Country context",
             _compact_context_values(base, "Country_Context"),
-            key="bi_country_filter",
+            key=f"bi_country_filter_{universe}",
         )
         sectors = f2.multiselect(
             "Sector context",
             _compact_context_values(base, "Sector_Context"),
-            key="bi_sector_filter",
+            key=f"bi_sector_filter_{universe}",
         )
         f3, f4 = st.columns(2)
         methods = f3.multiselect(
             "Methodological family (BI grouping)",
             _compact_context_values(base, "Methodology_Group"),
-            key="bi_method_filter",
+            key=f"bi_method_filter_{universe}",
         )
         pubs = f4.multiselect(
             "Publication type (BI grouping)",
             _compact_context_values(base, "Publication_Group"),
-            key="bi_pub_filter",
+            key=f"bi_pub_filter_{universe}",
         )
 
     filtered = filter_catalog(
@@ -448,7 +448,8 @@ def render_overview(filtered: pd.DataFrame, full_catalog: pd.DataFrame, frames: 
 
     st.caption(
         "These are different analytical universes and are intentionally shown separately; "
-        "they should not be described interchangeably as 'number of studies'."
+        "they should not be described interchangeably as 'number of studies'. "
+        "KPI cards describe the full loaded corpus; the charts below respond to the active dashboard filters."
     )
 
     left, right = st.columns([1.05, 1.0])
@@ -591,8 +592,6 @@ def render_time_context(filtered: pd.DataFrame) -> None:
                 matrix,
                 x="Sector_Context",
                 y="Country_Context",
-                z=None,
-                histfunc="count",
                 title="Country × sector coverage matrix",
             )
             fig.update_layout(height=520, xaxis_title="", yaxis_title="")
@@ -806,3 +805,20 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
         render_evidence_quality(filtered, frames)
     else:
         render_novelty_stability(filtered, frames)
+
+    st.divider()
+    with st.expander("Drill-through: studies behind the current filters", expanded=False):
+        cols = [
+            c for c in [
+                "Study_ID", "Study_Title", "Year", "Country_Context", "Sector_Context",
+                "Methodology_Group", "Publication_Group", "Eligibility_Group",
+                "QA_Judgment", "QA_Percent_Display", "Evidence_Records",
+                "Pass_Evidence", "FOC_Count",
+            ] if c in filtered.columns
+        ]
+        drill = filtered[cols].copy() if cols else pd.DataFrame()
+        if not drill.empty:
+            drill = drill.sort_values(["Year", "Study_ID"], ascending=[False, True], na_position="last")
+            st.dataframe(drill, use_container_width=True, hide_index=True, height=430)
+        else:
+            st.info("No study records match the current filters.")
