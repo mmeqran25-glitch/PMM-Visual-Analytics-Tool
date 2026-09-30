@@ -62,9 +62,10 @@ from researcher_cache import (
 )
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
+from qualitative_visuals import render_qualitative_visuals
 
 
-APP_VERSION = "v0.12.5"
+APP_VERSION = "v0.13.0"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -1384,6 +1385,7 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
     sections = [
         "Current State",
         "Research BI Dashboard",
+        "Qualitative Visuals",
         "SG2 Review",
         "Themes & Dimensions",
         "Evidence Integrity",
@@ -1405,6 +1407,8 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
         render_executive_snapshot(frames, snapshot)
     elif section == "Research BI Dashboard":
         render_research_bi_dashboard(frames)
+    elif section == "Qualitative Visuals":
+        render_qualitative_visuals(frames)
     elif section == "SG2 Review":
         render_sg2_review(frames)
     elif section == "Themes & Dimensions":
