@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.12.1
+# PMM Visual Analytics & Presentation Tool v0.12.2
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -155,6 +155,13 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Renders header, sidebar identity and footer as compact uninterrupted HTML fragments.
 - Adds graceful logo fallbacks so a temporary external image failure shows a clean university/faculty label instead of a broken-image icon.
 - Preserves the v0.12 academic identity, responsive layout and researcher/supervisor separation.
+
+## v0.12.2 Resilient academic logo tiles
+
+- Replaces external `<img>` tags with CSS background-image tiles so a failed remote image never produces a broken-image icon or alt-text clutter.
+- Uses a Wikimedia-hosted Sana'a University logo for reliable public rendering and the current official Sana'a University Faculty of Engineering image path.
+- Keeps visible bilingual captions under both logo areas even if an image source is temporarily unavailable.
+- Preserves the responsive academic header and all v0.12 branding.
 
 ## Workbook compatibility
 
