@@ -164,6 +164,10 @@ def main():
     assert "render_academic_brand_header" in app_source
     assert "render_sidebar_identity" in app_source
     assert "render_academic_footer" in app_source
+    assert "brand-logo-tile" in app_source
+    assert "background-image:url" in app_source
+    assert "commons.wikimedia.org/wiki/Special:Redirect/file/Sana%27a_University_Logo.jpg" in app_source
+    assert "su.edu.ye/wp-content/uploads/2024/11/ce-en-300x300.png" in app_source
 
     arbitrary_filename = "THIS_NAME_CAN_CHANGE_EVERY_DAY_v2045.xlsx"
     payload = build_workbook()
