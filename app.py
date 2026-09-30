@@ -58,9 +58,10 @@ from researcher_cache import (
     load_cached_master,
     clear_cached_master,
 )
+from dimension_export import dimension_trace_workbook_bytes
 
 
-APP_VERSION = "v0.9.4"
+APP_VERSION = "v0.10.0"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -576,6 +577,59 @@ def render_traceability(frames: dict):
 
     dlabels = dict(zip(dims["Dimension_ID"].astype(str), dims["Candidate_Dimension_Name"].astype(str)))
     did = st.selectbox("1. Dimension", dims["Dimension_ID"].astype(str).tolist(), format_func=lambda x: f"{x} — {dlabels.get(x,'')}", key="trace_dim")
+
+    with st.expander("Export complete selected Dimension to Excel", expanded=False):
+        st.caption(
+            "Creates a read-only traceability workbook for the selected current Dimension: "
+            "Dimension → Theme → PCL/Cluster → FOC → Meaning Unit → Study."
+        )
+        export_state_key = "dimension_trace_excel_export"
+        existing = st.session_state.get(export_state_key)
+        if existing and existing.get("dimension_id") != did:
+            st.session_state.pop(export_state_key, None)
+            existing = None
+
+        if st.button(
+            "Prepare Dimension Excel Export",
+            key="prepare_dimension_excel_export",
+            type="primary",
+            use_container_width=True,
+        ):
+            with st.spinner(f"Building full traceability workbook for {did}..."):
+                try:
+                    payload, summary = dimension_trace_workbook_bytes(frames, did)
+                    st.session_state[export_state_key] = {
+                        "dimension_id": did,
+                        "payload": payload,
+                        "summary": summary,
+                    }
+                    existing = st.session_state[export_state_key]
+                except Exception as exc:
+                    st.error(f"Could not build the Dimension Excel export: {exc}")
+                    existing = None
+
+        if existing and existing.get("dimension_id") == did:
+            summary = existing.get("summary", {})
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Themes", summary.get("Theme_Count", 0))
+            m2.metric("PCLs", summary.get("Cluster_Count", 0))
+            m3.metric("FOCs", summary.get("FOC_Count", 0))
+            m4.metric("Meaning Units", summary.get("Evidence_Count", 0))
+            m5.metric("Studies", summary.get("Study_Count", 0))
+
+            safe_did = "".join(ch for ch in str(did) if ch.isalnum() or ch in "-_") or "DIMENSION"
+            st.download_button(
+                "Download Dimension Traceability Excel",
+                data=existing["payload"],
+                file_name=f"PMM_Dimension_Trace_{safe_did}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary",
+            )
+            st.success(
+                "Excel is ready. It contains the complete current lineage down to source-near Meaning Units and contributing Studies."
+            )
+
     dmap = dimension_theme_map(frames)
     tids = dmap.loc[dmap["Dimension_ID"].astype(str).eq(did), "Theme_ID"].astype(str).tolist() if not dmap.empty else []
     if not tids:
