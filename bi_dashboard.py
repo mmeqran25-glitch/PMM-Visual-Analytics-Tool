@@ -362,6 +362,16 @@ def _compact_context_values(df: pd.DataFrame, col: str) -> list[str]:
     return sorted(x for x in s.unique().tolist() if x)
 
 
+def _apply_context_display_limit(df: pd.DataFrame, selection: str) -> pd.DataFrame:
+    """Apply an optional visual-only Top-N limit without changing the filtered corpus."""
+    if df.empty or selection == "All":
+        return df.copy()
+    match = re.search(r"(\d+)", str(selection))
+    if not match:
+        return df.copy()
+    return df.head(int(match.group(1))).copy()
+
+
 def render_dashboard_filters(catalog: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
     st.markdown("### Dashboard filters")
     c1, c2 = st.columns([1, 2])
@@ -543,41 +553,86 @@ def render_time_context(filtered: pd.DataFrame) -> None:
         fig.update_layout(height=420, legend_title_text="BI grouping")
         st.plotly_chart(fig, use_container_width=True)
 
-    c1, c2 = st.columns(2)
-    country_top = pd.DataFrame()
-    sector_top = pd.DataFrame()
+    country_all = pd.DataFrame()
+    sector_all = pd.DataFrame()
     if "Country_Context" in filtered.columns:
         tmp = filtered.copy()
         tmp["Country_Context"] = tmp["Country_Context"].fillna("").astype(str).str.strip()
-        country_top = (
+        country_all = (
             tmp[tmp["Country_Context"].ne("")]
             .groupby("Country_Context")["Study_ID"].nunique()
             .sort_values(ascending=False)
-            .head(12)
             .reset_index(name="Studies")
         )
     if "Sector_Context" in filtered.columns:
         tmp = filtered.copy()
         tmp["Sector_Context"] = tmp["Sector_Context"].fillna("").astype(str).str.strip()
-        sector_top = (
+        sector_all = (
             tmp[tmp["Sector_Context"].ne("")]
             .groupby("Sector_Context")["Study_ID"].nunique()
             .sort_values(ascending=False)
-            .head(12)
             .reset_index(name="Studies")
         )
 
+    st.markdown("#### Context chart display")
+    l1, l2 = st.columns(2)
+    country_limit = l1.selectbox(
+        "Country/context values",
+        ["All", "Top 10", "Top 20", "Top 30"],
+        index=0,
+        key="bi_country_context_display_limit",
+        help="Display control only. 'All' shows every populated Country_Context value in the current filtered corpus.",
+    )
+    sector_limit = l2.selectbox(
+        "Sector-context values",
+        ["All", "Top 10", "Top 20", "Top 30"],
+        index=0,
+        key="bi_sector_context_display_limit",
+        help="Display control only. It does not remove studies from the dashboard filters.",
+    )
+
+    country_top = _apply_context_display_limit(country_all, country_limit)
+    sector_top = _apply_context_display_limit(sector_all, sector_limit)
+    st.caption(
+        f"Populated context values available under the current filters: "
+        f"{len(country_all)} Country_Context values · {len(sector_all)} Sector_Context values. "
+        "Blank context cells are not plotted."
+    )
+
+    c1, c2 = st.columns(2)
     with c1:
         if not country_top.empty:
-            fig = px.bar(country_top.sort_values("Studies"), x="Studies", y="Country_Context", orientation="h", title="Top country contexts")
+            country_title = (
+                "All country/context values"
+                if country_limit == "All"
+                else f"{country_limit} country/context values"
+            )
+            fig = px.bar(
+                country_top.sort_values("Studies"),
+                x="Studies",
+                y="Country_Context",
+                orientation="h",
+                title=country_title,
+            )
             fig.update_yaxes(title="")
-            fig.update_layout(height=430)
+            fig.update_layout(height=max(430, min(1200, 30 * len(country_top) + 140)))
             st.plotly_chart(fig, use_container_width=True)
     with c2:
         if not sector_top.empty:
-            fig = px.bar(sector_top.sort_values("Studies"), x="Studies", y="Sector_Context", orientation="h", title="Top sector contexts")
+            sector_title = (
+                "All sector-context values"
+                if sector_limit == "All"
+                else f"{sector_limit} sector-context values"
+            )
+            fig = px.bar(
+                sector_top.sort_values("Studies"),
+                x="Studies",
+                y="Sector_Context",
+                orientation="h",
+                title=sector_title,
+            )
             fig.update_yaxes(title="")
-            fig.update_layout(height=430)
+            fig.update_layout(height=max(430, min(1200, 30 * len(sector_top) + 140)))
             st.plotly_chart(fig, use_container_width=True)
 
     if not country_top.empty and not sector_top.empty:
@@ -594,7 +649,11 @@ def render_time_context(filtered: pd.DataFrame) -> None:
                 y="Country_Context",
                 title="Country × sector coverage matrix",
             )
-            fig.update_layout(height=520, xaxis_title="", yaxis_title="")
+            fig.update_layout(
+                height=max(520, min(1400, 28 * len(country_top) + 180)),
+                xaxis_title="",
+                yaxis_title="",
+            )
             st.plotly_chart(fig, use_container_width=True)
 
     profiled = filtered[filtered["Profiled"]].copy()
