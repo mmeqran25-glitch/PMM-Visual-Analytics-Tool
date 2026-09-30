@@ -594,10 +594,8 @@ def render_flow(snapshot: dict):
 
 
 def render_snapshot_header(snapshot: dict, filename: str | None = None, show_filename: bool = False):
-    st.markdown('<div class="kicker">Excel MASTER → Python visual analytics</div>', unsafe_allow_html=True)
     title = snapshot.get("version") or "Current MASTER"
     decision = snapshot.get("decision")
-    st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
 
     parts = []
     if show_filename and filename:
@@ -606,8 +604,14 @@ def render_snapshot_header(snapshot: dict, filename: str | None = None, show_fil
         parts.append(str(title))
     if decision:
         parts.append(str(decision))
-    if parts:
-        st.caption(" · ".join(parts))
+    meta = " · ".join(parts) if parts else "Current validated MASTER"
+    st.markdown(
+        f'<div class="workspace-strip">'
+        f'<span class="label">Research analytics workspace</span>'
+        f'<span class="meta">{html.escape(meta)}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         '<div class="readonly-banner"><b>Read-only rule:</b> Excel MASTER is the only source of truth. '
@@ -1133,16 +1137,19 @@ def render_published_supervisor(package: dict):
     tree = package.get("tree", {})
     retired_snapshot_themes = package.get("retired_themes", []) or []
 
-    st.markdown('<div class="kicker">Supervisor presentation · sanitized snapshot</div>', unsafe_allow_html=True)
-    st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
-
     parts = []
     if snapshot.get("version"):
         parts.append(str(snapshot.get("version")))
     if snapshot.get("decision"):
         parts.append(str(snapshot.get("decision")))
-    if parts:
-        st.caption(" · ".join(parts))
+    meta = " · ".join(parts) if parts else "Sanitized published snapshot"
+    st.markdown(
+        f'<div class="workspace-strip">'
+        f'<span class="label">Supervisor presentation</span>'
+        f'<span class="meta">{html.escape(meta)}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         '<div class="readonly-banner"><b>Supervisor privacy rule:</b> This view does not contain the original Excel MASTER, '
