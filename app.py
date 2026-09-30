@@ -64,7 +64,7 @@ from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
 
 
-APP_VERSION = "v0.12.4"
+APP_VERSION = "v0.12.5"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
