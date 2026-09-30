@@ -59,9 +59,10 @@ from researcher_cache import (
     clear_cached_master,
 )
 from dimension_export import dimension_trace_workbook_bytes
+from bi_dashboard import render_research_bi_dashboard
 
 
-APP_VERSION = "v0.10.0"
+APP_VERSION = "v0.11.0"
 st.set_page_config(page_title=f"PMM Visual Analytics Tool {APP_VERSION}", page_icon="📊", layout="wide")
 
 st.markdown(
@@ -1092,6 +1093,7 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
     """
     sections = [
         "Current State",
+        "Research BI Dashboard",
         "SG2 Review",
         "Themes & Dimensions",
         "Evidence Integrity",
@@ -1111,6 +1113,8 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
 
     if section == "Current State":
         render_executive_snapshot(frames, snapshot)
+    elif section == "Research BI Dashboard":
+        render_research_bi_dashboard(frames)
     elif section == "SG2 Review":
         render_sg2_review(frames)
     elif section == "Themes & Dimensions":

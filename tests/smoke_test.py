@@ -15,6 +15,7 @@ from share_utils import supervisor_share_html
 from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_supervisor_snapshot
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
+from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -42,9 +43,37 @@ def build_workbook(version: str = "v99.123", decision: str = "DEC-999") -> bytes
         ])
         readme.to_excel(writer, sheet_name="00_README", index=False, header=False)
 
-        _sheet(writer, "01_Source_Register", ["Study_ID", "Study_Title"], [["SR001", "Synthetic Study"]])
-        _sheet(writer, "02_Capability_Eligibility", ["Study_ID", "Dimension_Formation_Decision"], [["SR001", "Eligible"]])
-        _sheet(writer, "03_Study_Profile", ["Study_ID", "Study_Title"], [["SR001", "Synthetic Study"]])
+        _sheet(
+            writer,
+            "01_Source_Register",
+            [
+                "Study_ID", "Title", "Authors", "Year", "Source_Publication_Type",
+                "Study_Design", "Methodological_Family", "QA_Judgment", "QA_Percent",
+            ],
+            [["SR001", "Synthetic Study", "A. Researcher", 2024, "Peer-reviewed journal article", "Survey", "Quantitative", "Include", 0.8]],
+        )
+        _sheet(
+            writer,
+            "02_Capability_Eligibility",
+            ["Study_ID", "Dimension_Formation_Decision"],
+            [["SR001", "Eligible"]],
+        )
+        _sheet(
+            writer,
+            "03_Study_Profile",
+            [
+                "Study_ID", "Title", "Authors", "Year", "Country_Context", "Sector_Context",
+                "Organization_Level", "Study_Design", "Methodological_Family",
+                "PMM_Model_or_Framework", "Unit_of_Analysis", "Evidence_Source_Role",
+                "Study_Family_ID", "Profile_Status",
+            ],
+            [[
+                "SR001", "Synthetic Study", "A. Researcher", 2024, "Yemen",
+                "Telecommunications", "Organization", "Cross-sectional survey",
+                "Quantitative", "Synthetic PMM", "Organization", "Primary empirical",
+                "SF-TEST-01", "Complete",
+            ]],
+        )
         _sheet(
             writer,
             "04_Verbatim_Evidence",
@@ -100,6 +129,23 @@ def build_workbook(version: str = "v99.123", decision: str = "DEC-999") -> bytes
                 "Cross_Context_Support", "Measurement_Evidence_Link", "Contradictory_or_Boundary_Evidence", "Notes",
             ],
             [["DIM-001", "Synthetic Dimension", "THM-001", "Stable", "Definition", "Logic", "Breadth", "", "", "", "", ""]],
+        )
+        _sheet(
+            writer,
+            "09_Novelty_Tracking",
+            [
+                "Novelty_Record_ID", "Batch_or_Sequence", "Study_ID", "Extraction_Order",
+                "Eligible_Original_Terms_Count", "New_First_Order_Code?", "New_Core_Capability?",
+                "New_Cluster?", "Boundary_Change?", "Split_or_Merge_Triggered?",
+                "Mainly_Reinforcement?", "Novelty_Summary", "Coverage_Gap_Addressed",
+                "Cumulative_Stability_Observation", "Decision_for_Next_Sampling",
+            ],
+            [[
+                "NOV-001", "Synthetic expansion", "SR001", 1, 1, "Yes – 1 new FOC",
+                "No", "Yes – PCL-001 Provisional", "No", "No",
+                "Mostly reinforcement", "Synthetic novelty record", "Synthetic gap",
+                "Initial stability observation", "Continue",
+            ]],
         )
         _sheet(writer, "10_Study_Families", ["Study_ID"], [["SR001"]])
         _sheet(writer, "11_Decision_Log", ["Decision_ID"], [[decision]])
@@ -201,6 +247,48 @@ def main():
     assert current_dims.iloc[0]["Dimension_Status"] == "PASS – PROVISIONAL"
     assert current_dims.iloc[0]["Supporting_Theme_IDs"] == "THM-001; THM-002"
     assert current_dims.iloc[0]["Underlying_Cluster_IDs"] == "PCL-001; PCL-002"
+
+    # Research BI catalog keeps study universes and study-level metadata distinct.
+    bi_catalog = build_study_catalog(frames)
+    assert len(bi_catalog) == 1
+    bi_row = bi_catalog.iloc[0]
+    assert bi_row["Study_ID"] == "SR001"
+    assert int(bi_row["Year"]) == 2024
+    assert bi_row["Country_Context"] == "Yemen"
+    assert bi_row["Sector_Context"] == "Telecommunications"
+    assert bi_row["Methodology_Group"] == "Quantitative"
+    assert bi_row["Publication_Group"] == "Journal Article"
+    assert bi_row["Eligibility_Group"] == "Eligible"
+    assert bi_row["Evidence_Records"] == 1
+    assert bi_row["Pass_Evidence"] == 1
+    assert bi_row["FOC_Count"] == 1
+    assert round(float(bi_row["QA_Percent_Display"]), 1) == 80.0
+
+    assert len(filter_catalog(bi_catalog, "All Sources")) == 1
+    assert len(filter_catalog(bi_catalog, "Profiled Studies")) == 1
+    assert len(filter_catalog(bi_catalog, "Evidence Contributors")) == 1
+    assert len(filter_catalog(bi_catalog, "Pass Contributors")) == 1
+
+    bi_counts = dashboard_counts(bi_catalog, frames)
+    assert bi_counts["sources"] == 1
+    assert bi_counts["profiled"] == 1
+    assert bi_counts["contributors"] == 1
+    assert bi_counts["pass_contributors"] == 1
+    assert bi_counts["evidence_records"] == 1
+    assert bi_counts["pass_evidence"] == 1
+    assert bi_counts["period"] == "2024–2024"
+
+    completeness = context_completeness(bi_catalog)
+    assert not completeness.empty
+    assert float(completeness.loc[completeness["Field"] == "Country_Context", "Percent"].iloc[0]) == 100.0
+    assert float(completeness.loc[completeness["Field"] == "Sector_Context", "Percent"].iloc[0]) == 100.0
+
+    novelty = novelty_study_rows(frames, ["SR001"])
+    assert len(novelty) == 1
+    assert bool(novelty.iloc[0]["New_FOC_Flag"])
+    assert bool(novelty.iloc[0]["New_Cluster_Flag"])
+    assert not bool(novelty.iloc[0]["Boundary_Change_Flag"])
+    assert bool(novelty.iloc[0]["Reinforcement_Flag"])
 
     # Selected Dimension can be exported as a complete Excel traceability package.
     export_bytes, export_summary = dimension_trace_workbook_bytes(frames, "DIM-001")
