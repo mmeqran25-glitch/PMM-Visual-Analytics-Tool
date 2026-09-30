@@ -114,6 +114,8 @@ def build_study_catalog(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     src = _dedupe(frames.get("01_Source_Register", pd.DataFrame()), "Study_ID")
     if src.empty:
         return pd.DataFrame()
+    if "Title" not in src.columns and "Study_Title" in src.columns:
+        src = src.rename(columns={"Study_Title": "Title"})
 
     keep_src = [
         c for c in [
@@ -133,6 +135,8 @@ def build_study_catalog(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     catalog = catalog.rename(columns=rename_src)
 
     profile = _dedupe(frames.get("03_Study_Profile", pd.DataFrame()), "Study_ID")
+    if not profile.empty and "Title" not in profile.columns and "Study_Title" in profile.columns:
+        profile = profile.rename(columns={"Study_Title": "Title"})
     profile_ids = set(profile.get("Study_ID", pd.Series(dtype=str)).astype(str)) if not profile.empty else set()
     if not profile.empty:
         keep_profile = [
