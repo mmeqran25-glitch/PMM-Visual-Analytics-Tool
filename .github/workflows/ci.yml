@@ -25,7 +25,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Compile Python modules
-        run: python -m py_compile app.py master_utils.py tree_utils.py visual_utils.py share_utils.py snapshot_utils.py researcher_cache.py dimension_export.py
+        run: python -m py_compile app.py master_utils.py tree_utils.py visual_utils.py share_utils.py snapshot_utils.py researcher_cache.py dimension_export.py bi_dashboard.py
 
       - name: Run version-agnostic smoke test
         env:
