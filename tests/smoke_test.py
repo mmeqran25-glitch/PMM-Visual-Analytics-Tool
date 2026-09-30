@@ -15,7 +15,7 @@ from share_utils import supervisor_share_html
 from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_supervisor_snapshot
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
-from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness
+from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -298,6 +298,14 @@ def main():
     assert not completeness.empty
     assert float(completeness.loc[completeness["Field"] == "Country_Context", "Percent"].iloc[0]) == 100.0
     assert float(completeness.loc[completeness["Field"] == "Sector_Context", "Percent"].iloc[0]) == 100.0
+
+    context_counts = pd.DataFrame({
+        "Country_Context": ["A", "B", "C", "D"],
+        "Studies": [10, 8, 6, 4],
+    })
+    assert len(_apply_context_display_limit(context_counts, "All")) == 4
+    assert len(_apply_context_display_limit(context_counts, "Top 10")) == 4
+    assert len(_apply_context_display_limit(context_counts, "Top 2")) == 2
 
     novelty = novelty_study_rows(frames, ["SR001"])
     assert len(novelty) == 1
