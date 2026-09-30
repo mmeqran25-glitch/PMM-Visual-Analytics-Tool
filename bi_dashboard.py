@@ -372,6 +372,155 @@ def _apply_context_display_limit(df: pd.DataFrame, selection: str) -> pd.DataFra
     return df.head(int(match.group(1))).copy()
 
 
+COUNTRY_PATTERNS = [
+    ("Indonesia", [r"\bindonesia\b"]),
+    ("Poland", [r"\bpoland\b", r"\bpolish\b"]),
+    ("China", [r"\bchina\b", r"\bchinese\b"]),
+    ("Pakistan", [r"\bpakistan\b"]),
+    ("Switzerland", [r"\bswitzerland\b", r"\bswiss\b"]),
+    ("United States", [r"\bunited states\b", r"\busa\b", r"\bu\.s\.\b", r"\bcentral florida\b"]),
+    ("Ukraine", [r"\bukraine\b"]),
+    ("Sweden", [r"\bsweden\b", r"\bgothenburg\b"]),
+    ("Saudi Arabia", [r"\bsaudi arabia\b", r"\bksa\b"]),
+    ("Slovakia", [r"\bslovak republic\b", r"\bslovakia\b"]),
+    ("South Africa", [r"\bsouth africa\b", r"\bsouth african\b"]),
+    ("Nigeria", [r"\bnigeria\b"]),
+    ("Rwanda", [r"\brwanda\b"]),
+    ("Portugal", [r"\bportugal\b"]),
+    ("Lithuania", [r"\blithuania\b", r"\bvilnius\b"]),
+    ("Ethiopia", [r"\bethiopia\b", r"\boromia\b", r"\bamhara\b", r"\btigray\b"]),
+    ("Lesotho", [r"\blesotho\b"]),
+    ("Iraq", [r"\biraq\b"]),
+    ("Malawi", [r"\bmalawi\b"]),
+    ("Malaysia", [r"\bmalaysia\b"]),
+    ("Netherlands", [r"\bnetherlands\b", r"\bdutch\b"]),
+    ("Australia", [r"\baustralia\b", r"\bnew south wales\b"]),
+    ("Austria", [r"\baustria\b", r"\baustrian\b"]),
+    ("Hungary", [r"\bhungary\b", r"\bhungarian\b"]),
+    ("United Kingdom", [r"\bunited kingdom\b", r"\buk\b", r"\bbritain\b", r"\bbritish\b"]),
+    ("India", [r"\bindia\b", r"\bindian\b"]),
+    ("Brazil", [r"\bbrazil\b"]),
+    ("Canada", [r"\bcanada\b"]),
+    ("Germany", [r"\bgermany\b", r"\bgerman\b"]),
+    ("France", [r"\bfrance\b", r"\bfrench\b"]),
+    ("Spain", [r"\bspain\b", r"\bspanish\b"]),
+    ("Italy", [r"\bitaly\b", r"\bitalian\b"]),
+    ("Yemen", [r"\byemen\b"]),
+    ("Egypt", [r"\begypt\b"]),
+    ("Jordan", [r"\bjordan\b"]),
+    ("United Arab Emirates", [r"\bunited arab emirates\b", r"\buae\b"]),
+    ("Oman", [r"\boman\b"]),
+    ("Qatar", [r"\bqatar\b"]),
+    ("Turkey", [r"\bturkey\b", r"\btürkiye\b"]),
+]
+
+SECTOR_PATTERNS = [
+    ("Telecommunications / ICT", [r"telecommunication", r"\bict\b", r"information and communication technology", r"software", r"information systems", r"\bit\b"]),
+    ("Construction / Engineering / EPC", [r"construction", r"engineering", r"\bepc\b", r"infrastructure", r"project engineering"]),
+    ("Public Sector / Government", [r"public sector", r"government", r"public service", r"public administration", r"state information"]),
+    ("Energy / Utilities", [r"energy", r"solar", r"power", r"electric", r"utility", r"utilities", r"water sector"]),
+    ("Oil & Gas / Petrochemical", [r"oil and gas", r"petrochemical", r"upstream", r"well-construction"]),
+    ("Manufacturing / Industrial", [r"manufactur", r"industrial", r"production-oriented"]),
+    ("Mining", [r"mining"]),
+    ("Higher Education / Research", [r"higher education", r"universit", r"academic", r"research institution", r"e-learning"]),
+    ("Logistics / Transport", [r"logistic", r"transport", r"\btsl\b"]),
+    ("Defence / Aerospace", [r"defence", r"defense", r"space center", r"boeing", r"aerospace"]),
+    ("Financial Services", [r"financial service", r"bank", r"finance"]),
+    ("Consulting / Professional Services", [r"consult", r"professional service", r"business consulting"]),
+    ("Non-profit / Development", [r"non-profit", r"nonprofit", r"non-governmental", r"development project"]),
+    ("Cross-sector / Multi-sector", [r"cross-sector", r"multi-sector", r"multisector", r"multiple sector", r"several sector", r"project-driven organisations"]),
+]
+
+
+def _country_bi_group(value: str) -> str:
+    text = _text(value)
+    low = text.lower()
+    if not low:
+        return "Not specified"
+    if any(x in low for x in [
+        "not explicitly", "not specified", "no empirical country", "country not identified",
+        "conceptual article", "location countries not", "model testing is ongoing",
+    ]):
+        return "Not specified / Conceptual"
+    if any(x in low for x in [
+        "multinational", "multi-country", "international", "cross-border",
+        "two continents", "seven major sites", "global",
+    ]):
+        matched = []
+        for label, patterns in COUNTRY_PATTERNS:
+            if any(re.search(p, low) for p in patterns):
+                matched.append(label)
+        if len(set(matched)) > 1:
+            return "International / Multi-country"
+        if len(set(matched)) == 1 and "international" not in low:
+            return matched[0]
+        return "International / Multi-country"
+    matched = []
+    for label, patterns in COUNTRY_PATTERNS:
+        if any(re.search(p, low) for p in patterns):
+            matched.append(label)
+    matched = list(dict.fromkeys(matched))
+    if len(matched) == 1:
+        return matched[0]
+    if len(matched) > 1:
+        return "International / Multi-country"
+    if len(text) <= 36 and all(sep not in text for sep in [" / ", ";", " – ", " — "]):
+        return text
+    return "Other / Context-specific"
+
+
+def _sector_bi_group(value: str) -> str:
+    text = _text(value)
+    low = text.lower()
+    if not low:
+        return "Not specified"
+    matches = []
+    for label, patterns in SECTOR_PATTERNS:
+        if any(re.search(p, low) for p in patterns):
+            matches.append(label)
+    matches = list(dict.fromkeys(matches))
+    if not matches:
+        return "Other / Context-specific"
+    if "Cross-sector / Multi-sector" in matches or len(matches) >= 3:
+        return "Cross-sector / Multi-sector"
+    return matches[0]
+
+
+def _top_n_with_other(df: pd.DataFrame, label_col: str, value_col: str = "Studies", n: int = 10) -> pd.DataFrame:
+    """Return top N categories plus one Other row so the chart remains compact but complete."""
+    if df.empty:
+        return df.copy()
+    ordered = df.sort_values(value_col, ascending=False).reset_index(drop=True)
+    top = ordered.head(n).copy()
+    remainder = ordered.iloc[n:]
+    if not remainder.empty:
+        other_value = int(pd.to_numeric(remainder[value_col], errors="coerce").fillna(0).sum())
+        if other_value > 0:
+            top = pd.concat(
+                [top, pd.DataFrame([{label_col: "Other", value_col: other_value}])],
+                ignore_index=True,
+            )
+    return top
+
+
+def _raw_context_detail(filtered: pd.DataFrame, raw_col: str, group_func) -> pd.DataFrame:
+    if filtered.empty or raw_col not in filtered.columns:
+        return pd.DataFrame()
+    detail = filtered[["Study_ID", raw_col]].copy()
+    detail[raw_col] = detail[raw_col].fillna("").astype(str).str.strip()
+    detail = detail[detail[raw_col].ne("")]
+    if detail.empty:
+        return pd.DataFrame()
+    detail["BI_Group"] = detail[raw_col].map(group_func)
+    detail = (
+        detail.groupby(["BI_Group", raw_col])["Study_ID"]
+        .nunique()
+        .reset_index(name="Studies")
+        .sort_values(["BI_Group", "Studies", raw_col], ascending=[True, False, True])
+    )
+    return detail
+
+
 def render_dashboard_filters(catalog: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
     st.markdown("### Dashboard filters")
     c1, c2 = st.columns([1, 2])
@@ -553,113 +702,155 @@ def render_time_context(filtered: pd.DataFrame) -> None:
         fig.update_layout(height=420, legend_title_text="BI grouping")
         st.plotly_chart(fig, use_container_width=True)
 
-    country_all = pd.DataFrame()
-    sector_all = pd.DataFrame()
-    if "Country_Context" in filtered.columns:
-        tmp = filtered.copy()
-        tmp["Country_Context"] = tmp["Country_Context"].fillna("").astype(str).str.strip()
-        country_all = (
-            tmp[tmp["Country_Context"].ne("")]
-            .groupby("Country_Context")["Study_ID"].nunique()
-            .sort_values(ascending=False)
-            .reset_index(name="Studies")
-        )
-    if "Sector_Context" in filtered.columns:
-        tmp = filtered.copy()
-        tmp["Sector_Context"] = tmp["Sector_Context"].fillna("").astype(str).str.strip()
-        sector_all = (
-            tmp[tmp["Sector_Context"].ne("")]
-            .groupby("Sector_Context")["Study_ID"].nunique()
-            .sort_values(ascending=False)
-            .reset_index(name="Studies")
-        )
-
-    st.markdown("#### Context chart display")
-    l1, l2 = st.columns(2)
-    country_limit = l1.selectbox(
-        "Country/context values",
-        ["All", "Top 10", "Top 20", "Top 30"],
-        index=0,
-        key="bi_country_context_display_limit",
-        help="Display control only. 'All' shows every populated Country_Context value in the current filtered corpus.",
-    )
-    sector_limit = l2.selectbox(
-        "Sector-context values",
-        ["All", "Top 10", "Top 20", "Top 30"],
-        index=0,
-        key="bi_sector_context_display_limit",
-        help="Display control only. It does not remove studies from the dashboard filters.",
-    )
-
-    country_top = _apply_context_display_limit(country_all, country_limit)
-    sector_top = _apply_context_display_limit(sector_all, sector_limit)
+    st.markdown("#### Context Explorer")
     st.caption(
-        f"Populated context values available under the current filters: "
-        f"{len(country_all)} Country_Context values · {len(sector_all)} Sector_Context values. "
-        "Blank context cells are not plotted."
+        "BI Grouped is designed for interpretation and thesis-ready visuals. "
+        "Raw Context Values preserves every original Country_Context / Sector_Context entry for audit review."
     )
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if not country_top.empty:
-            country_title = (
-                "All country/context values"
-                if country_limit == "All"
-                else f"{country_limit} country/context values"
-            )
-            fig = px.bar(
-                country_top.sort_values("Studies"),
-                x="Studies",
-                y="Country_Context",
-                orientation="h",
-                title=country_title,
-            )
-            fig.update_yaxes(title="")
-            fig.update_layout(height=max(430, min(1200, 30 * len(country_top) + 140)))
-            st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        if not sector_top.empty:
-            sector_title = (
-                "All sector-context values"
-                if sector_limit == "All"
-                else f"{sector_limit} sector-context values"
-            )
-            fig = px.bar(
-                sector_top.sort_values("Studies"),
-                x="Studies",
-                y="Sector_Context",
-                orientation="h",
-                title=sector_title,
-            )
-            fig.update_yaxes(title="")
-            fig.update_layout(height=max(430, min(1200, 30 * len(sector_top) + 140)))
-            st.plotly_chart(fig, use_container_width=True)
+    control1, control2, control3 = st.columns([1.0, 1.0, 1.1])
+    context_axis = control1.radio(
+        "Context dimension",
+        ["Country", "Sector"],
+        horizontal=True,
+        key="bi_context_axis",
+    )
+    context_mode = control2.radio(
+        "Display mode",
+        ["BI Grouped", "Raw Context Values"],
+        horizontal=True,
+        key="bi_context_mode",
+    )
+    top_n = control3.selectbox(
+        "Chart size",
+        [10, 15, 20],
+        index=0,
+        key="bi_context_top_n",
+        help="The chart remains compact. All remaining categories are rolled into Other; raw values stay available below.",
+    )
 
-    if not country_top.empty and not sector_top.empty:
-        top_countries = set(country_top["Country_Context"])
-        top_sectors = set(sector_top["Sector_Context"])
-        matrix = filtered[
-            filtered["Country_Context"].fillna("").astype(str).isin(top_countries)
-            & filtered["Sector_Context"].fillna("").astype(str).isin(top_sectors)
+    if context_axis == "Country":
+        raw_col = "Country_Context"
+        group_func = _country_bi_group
+        axis_title = "Country context"
+    else:
+        raw_col = "Sector_Context"
+        group_func = _sector_bi_group
+        axis_title = "Sector context"
+
+    if raw_col not in filtered.columns:
+        st.info(f"{raw_col} is not available in the current workbook.")
+        return
+
+    work = filtered[["Study_ID", raw_col]].copy()
+    work[raw_col] = work[raw_col].fillna("").astype(str).str.strip()
+    work = work[work[raw_col].ne("")]
+    if work.empty:
+        st.info(f"No populated {raw_col} values are available under the current filters.")
+        return
+
+    if context_mode == "BI Grouped":
+        work["Display_Category"] = work[raw_col].map(group_func)
+        dist = (
+            work.groupby("Display_Category")["Study_ID"]
+            .nunique()
+            .reset_index(name="Studies")
+            .sort_values("Studies", ascending=False)
+        )
+        chart = _top_n_with_other(dist, "Display_Category", "Studies", int(top_n))
+        y_col = "Display_Category"
+        title = f"{axis_title} — Top {top_n} BI groups + Other"
+    else:
+        dist = (
+            work.groupby(raw_col)["Study_ID"]
+            .nunique()
+            .reset_index(name="Studies")
+            .sort_values("Studies", ascending=False)
+        )
+        chart = _top_n_with_other(dist, raw_col, "Studies", int(top_n))
+        y_col = raw_col
+        title = f"{axis_title} — Top {top_n} raw values + Other"
+
+    fig = px.bar(
+        chart.sort_values("Studies"),
+        x="Studies",
+        y=y_col,
+        orientation="h",
+        text="Studies",
+        title=title,
+    )
+    fig.update_yaxes(title="")
+    fig.update_xaxes(title="Unique studies", dtick=1)
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    fig.update_layout(
+        height=470,
+        margin=dict(l=20, r=55, t=60, b=30),
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    total_values = int(work[raw_col].nunique())
+    grouped_values = int(work[raw_col].map(group_func).nunique())
+    context_studies = int(work["Study_ID"].nunique())
+    st.caption(
+        f"Coverage under current filters: {context_studies} studies with populated {raw_col} · "
+        f"{total_values} original values · {grouped_values} BI groups. "
+        "The Other bar aggregates categories outside the displayed Top-N; no study is discarded."
+    )
+
+    detail = _raw_context_detail(filtered, raw_col, group_func)
+    with st.expander(f"View all original {raw_col} values and BI grouping", expanded=False):
+        if not detail.empty:
+            st.dataframe(detail, use_container_width=True, hide_index=True, height=460)
+        else:
+            st.info("No populated context values are available.")
+
+    # Keep the Country × Sector relationship available, but use compact BI groups
+    # so the heatmap remains interpretable rather than reproducing long raw phrases.
+    if {"Country_Context", "Sector_Context"}.issubset(filtered.columns):
+        matrix = filtered[["Study_ID", "Country_Context", "Sector_Context"]].copy()
+        matrix["Country_Context"] = matrix["Country_Context"].fillna("").astype(str).str.strip()
+        matrix["Sector_Context"] = matrix["Sector_Context"].fillna("").astype(str).str.strip()
+        matrix = matrix[
+            matrix["Country_Context"].ne("") & matrix["Sector_Context"].ne("")
         ].copy()
         if not matrix.empty:
-            fig = px.density_heatmap(
-                matrix,
-                x="Sector_Context",
-                y="Country_Context",
-                title="Country × sector coverage matrix",
+            matrix["Country_Group"] = matrix["Country_Context"].map(_country_bi_group)
+            matrix["Sector_Group"] = matrix["Sector_Context"].map(_sector_bi_group)
+
+            country_rank = (
+                matrix.groupby("Country_Group")["Study_ID"].nunique()
+                .sort_values(ascending=False).head(10).index
             )
-            fig.update_layout(
-                height=max(520, min(1400, 28 * len(country_top) + 180)),
-                xaxis_title="",
-                yaxis_title="",
+            sector_rank = (
+                matrix.groupby("Sector_Group")["Study_ID"].nunique()
+                .sort_values(ascending=False).head(10).index
             )
-            st.plotly_chart(fig, use_container_width=True)
+            heat = matrix[
+                matrix["Country_Group"].isin(country_rank)
+                & matrix["Sector_Group"].isin(sector_rank)
+            ].copy()
+            if not heat.empty:
+                st.markdown("#### Country × Sector — compact BI matrix")
+                fig = px.density_heatmap(
+                    heat,
+                    x="Sector_Group",
+                    y="Country_Group",
+                    title="Top BI country groups × sector groups",
+                )
+                fig.update_layout(height=520, xaxis_title="", yaxis_title="")
+                st.plotly_chart(fig, use_container_width=True)
 
     profiled = filtered[filtered["Profiled"]].copy()
     if not profiled.empty:
-        country_complete = profiled["Country_Context"].fillna("").astype(str).str.strip().ne("").mean() * 100 if "Country_Context" in profiled.columns else 0
-        sector_complete = profiled["Sector_Context"].fillna("").astype(str).str.strip().ne("").mean() * 100 if "Sector_Context" in profiled.columns else 0
+        country_complete = (
+            profiled["Country_Context"].fillna("").astype(str).str.strip().ne("").mean() * 100
+            if "Country_Context" in profiled.columns else 0
+        )
+        sector_complete = (
+            profiled["Sector_Context"].fillna("").astype(str).str.strip().ne("").mean() * 100
+            if "Sector_Context" in profiled.columns else 0
+        )
         if country_complete < 90 or sector_complete < 90:
             st.warning(
                 f"Context coverage is incomplete under the current filter: Country {country_complete:.1f}% · "

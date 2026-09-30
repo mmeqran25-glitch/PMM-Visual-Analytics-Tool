@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.12.4
+# PMM Visual Analytics & Presentation Tool v0.12.5
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -185,6 +185,15 @@ Adds a dedicated researcher-only BI workspace that describes the evidence corpus
 - Country/context and sector-context charts now default to **All** populated values under the active filters.
 - Optional display controls allow **Top 10 / Top 20 / Top 30** when a compact presentation is preferred.
 - The chart caption reports how many populated context values are available and explicitly excludes blank cells from plotted categories.
+
+## v0.12.5 Compact Context Explorer
+
+- Replaces the very tall side-by-side Country and Sector charts with one focused context chart at a time.
+- Default display is **BI Grouped** with **Top 10 + Other**, keeping the page compact while retaining total coverage.
+- Researcher can switch between **Country / Sector**, **BI Grouped / Raw Context Values**, and Top 10 / 15 / 20.
+- Long Country_Context and Sector_Context phrases remain unchanged in the MASTER and are exposed in a full drill-through table.
+- Adds a compact Country × Sector BI heatmap using top grouped categories rather than raw long phrases.
+- BI grouping is presentation-only and never writes classifications back to the Excel MASTER.
 
 ## Workbook compatibility
 

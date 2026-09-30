@@ -15,7 +15,7 @@ from share_utils import supervisor_share_html
 from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_supervisor_snapshot
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
-from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit
+from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -298,6 +298,21 @@ def main():
     assert not completeness.empty
     assert float(completeness.loc[completeness["Field"] == "Country_Context", "Percent"].iloc[0]) == 100.0
     assert float(completeness.loc[completeness["Field"] == "Sector_Context", "Percent"].iloc[0]) == 100.0
+
+    assert _country_bi_group("South Africa – national government / South African Public Service") == "South Africa"
+    assert _country_bi_group("No empirical country context specified; conceptual article.") == "Not specified / Conceptual"
+    assert _country_bi_group("Austria and Hungary / Austrian-Hungarian cross-border region") == "International / Multi-country"
+    assert _sector_bi_group("Telecommunications / telecom industry") == "Telecommunications / ICT"
+    assert _sector_bi_group("Solar energy / Engineering, Procurement and Construction (EPC)") == "Construction / Engineering / EPC"
+
+    topn_input = pd.DataFrame({
+        "Display_Category": ["A", "B", "C", "D"],
+        "Studies": [10, 8, 6, 4],
+    })
+    topn = _top_n_with_other(topn_input, "Display_Category", "Studies", 2)
+    assert topn["Display_Category"].tolist() == ["A", "B", "Other"]
+    assert int(topn.loc[topn["Display_Category"] == "Other", "Studies"].iloc[0]) == 10
+    assert int(topn["Studies"].sum()) == int(topn_input["Studies"].sum())
 
     context_counts = pd.DataFrame({
         "Country_Context": ["A", "B", "C", "D"],
