@@ -157,17 +157,118 @@ def retired_themes(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 
 def active_dimensions(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Return current candidate-dimension rows only (nonblank IDs; exclude retired/rejected rows)."""
+    """Return the current working Candidate Dimensions.
+
+    Workbooks can retain multiple generations of DIM rows for audit history.
+    Current candidates may therefore appear either as canonical rows with an
+    explicit active status, or as a later SG4 working/audit block whose
+    cross-audit result is recorded in Core_Capability_Logic while legacy rows
+    remain Historical/Suspended above it.
+
+    Selection rules are content-based rather than tied to a workbook version:
+    1) never treat Historical/Superseded/Suspended/Retired/etc. rows as current;
+    2) prefer explicit active-status DIM rows when present;
+    3) otherwise admit current working rows that have a PASS/PROVISIONAL
+       cross-audit result, a working label, definition and inclusion anchor;
+    4) when the working row carries descriptive inclusion text instead of THM
+       IDs, recover the last source-grounded THM/PCL membership recorded for the
+       same DIM ID from the retained historical row. This preserves lineage
+       without reactivating the historical label/status.
+    """
     df = frames.get("08_Candidate_Dimensions", pd.DataFrame()).copy()
     if df.empty or "Dimension_ID" not in df.columns:
         return df
+
     ids = df["Dimension_ID"].fillna("").astype(str).str.strip()
-    mask = ids.str.match(r"^DIM-\d{3}$", case=False, na=False)
-    if "Dimension_Status" in df.columns:
-        status = df["Dimension_Status"].fillna("").astype(str).str.strip()
-        mask &= status.ne("")
-        mask &= ~status.str.contains("Retired|Rejected|Withdrawn", case=False, regex=True)
-    return df.loc[mask].copy()
+    dim_mask = ids.str.match(r"^DIM-\d{3}$", case=False, na=False)
+    dims = df.loc[dim_mask].copy()
+    if dims.empty:
+        return dims
+
+    status = (
+        dims["Dimension_Status"].fillna("").astype(str).str.strip()
+        if "Dimension_Status" in dims.columns
+        else pd.Series("", index=dims.index, dtype=str)
+    )
+    inactive_pattern = r"Retired|Rejected|Withdrawn|Historical|Superseded|Suspended"
+    inactive = status.str.contains(inactive_pattern, case=False, regex=True, na=False)
+
+    # Canonical current rows with an explicit non-inactive status.
+    explicit_current = dims.loc[status.ne("") & ~inactive].copy()
+    if not explicit_current.empty:
+        return explicit_current.drop_duplicates(subset=["Dimension_ID"], keep="last").copy()
+
+    # Some audited workbooks hold the current working set in a secondary SG4
+    # block. In those rows the original columns receive the secondary header by
+    # position: Candidate_Dimension_Name=working label,
+    # Analytical_Definition=dominant function,
+    # Supporting_Theme_IDs=primary inclusion anchor,
+    # Core_Capability_Logic=cross-audit decision.
+    logic = (
+        dims["Core_Capability_Logic"].fillna("").astype(str).str.strip()
+        if "Core_Capability_Logic" in dims.columns
+        else pd.Series("", index=dims.index, dtype=str)
+    )
+    label = (
+        dims["Candidate_Dimension_Name"].fillna("").astype(str).str.strip()
+        if "Candidate_Dimension_Name" in dims.columns
+        else pd.Series("", index=dims.index, dtype=str)
+    )
+    definition = (
+        dims["Analytical_Definition"].fillna("").astype(str).str.strip()
+        if "Analytical_Definition" in dims.columns
+        else pd.Series("", index=dims.index, dtype=str)
+    )
+    inclusion = (
+        dims["Supporting_Theme_IDs"].fillna("").astype(str).str.strip()
+        if "Supporting_Theme_IDs" in dims.columns
+        else pd.Series("", index=dims.index, dtype=str)
+    )
+
+    working_mask = (
+        status.eq("")
+        & logic.str.contains(r"\bPASS\b", case=False, regex=True, na=False)
+        & logic.str.contains(r"PROVISIONAL|STABLE|CURRENT|ACTIVE", case=False, regex=True, na=False)
+        & label.ne("")
+        & definition.ne("")
+        & inclusion.ne("")
+    )
+    working = dims.loc[working_mask].copy()
+    if working.empty:
+        return dims.iloc[0:0].copy()
+
+    # Recover explicit THM/PCL memberships from the retained canonical lineage
+    # row for the same DIM ID when the working block uses descriptive anchors.
+    for idx, row in working.iterrows():
+        did = str(row.get("Dimension_ID", "")).strip()
+        lineage = dims.loc[dims["Dimension_ID"].astype(str).str.strip().eq(did)].copy()
+        if lineage.empty:
+            continue
+
+        if "Supporting_Theme_IDs" in working.columns:
+            cur = str(row.get("Supporting_Theme_IDs", "") or "")
+            if not re.search(r"\bTHM-\d{3}\b", cur, flags=re.IGNORECASE):
+                candidates = [
+                    str(v) for v in lineage["Supporting_Theme_IDs"].dropna().tolist()
+                    if re.search(r"\bTHM-\d{3}\b", str(v), flags=re.IGNORECASE)
+                ]
+                if candidates:
+                    working.at[idx, "Supporting_Theme_IDs"] = candidates[-1]
+
+        if "Underlying_Cluster_IDs" in working.columns:
+            cur = str(row.get("Underlying_Cluster_IDs", "") or "")
+            if not re.search(r"\bPCL-\d{3}\b", cur, flags=re.IGNORECASE):
+                candidates = [
+                    str(v) for v in lineage["Underlying_Cluster_IDs"].dropna().tolist()
+                    if re.search(r"\bPCL-\d{3}\b", str(v), flags=re.IGNORECASE)
+                ]
+                if candidates:
+                    working.at[idx, "Underlying_Cluster_IDs"] = candidates[-1]
+
+        if "Dimension_Status" in working.columns:
+            working.at[idx, "Dimension_Status"] = logic.loc[idx]
+
+    return working.drop_duplicates(subset=["Dimension_ID"], keep="last").copy()
 
 
 def dashboard_metrics(frames: Dict[str, pd.DataFrame]) -> Dict[str, int]:
