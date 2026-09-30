@@ -16,6 +16,7 @@ from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_superv
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
+from qualitative_visuals import build_dimension_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -328,6 +329,29 @@ def main():
     assert bool(novelty.iloc[0]["New_Cluster_Flag"])
     assert not bool(novelty.iloc[0]["Boundary_Change_Flag"])
     assert bool(novelty.iloc[0]["Reinforcement_Flag"])
+
+    # Qualitative thesis visuals resolve the current derivation structure and study support.
+    sankey = build_dimension_sankey(frames, "DIM-001")
+    assert len(sankey.data) == 1
+    assert sankey.data[0].type == "sankey"
+    assert len(sankey.data[0].link.source) >= 2
+
+    qmatrix = build_theme_study_matrix(frames, "Evidence count")
+    assert not qmatrix.empty
+    assert ("THM-001", "Synthetic Theme") in qmatrix.index
+    assert "SR001" in qmatrix.columns
+    assert int(qmatrix.loc[("THM-001", "Synthetic Theme"), "SR001"]) == 1
+    assert not any(idx[0] == "THM-016" for idx in qmatrix.index)
+
+    heatmap, shown = build_heatmap_figure(qmatrix, 15)
+    assert len(heatmap.data) == 1
+    assert heatmap.data[0].type == "heatmap"
+    assert not shown.empty
+
+    network, edge_table = build_cooccurrence_figure(frames, 1)
+    assert len(network.data) >= 1
+    assert network.data[-1].type == "scatter"
+    assert edge_table.empty  # only one active Theme in the synthetic workbook
 
     # Selected Dimension can be exported as a complete Excel traceability package.
     export_bytes, export_summary = dimension_trace_workbook_bytes(frames, "DIM-001")
