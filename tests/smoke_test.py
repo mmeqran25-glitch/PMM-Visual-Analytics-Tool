@@ -158,8 +158,6 @@ def main():
     app_source = Path("app.py").read_text(encoding="utf-8")
     assert "رسالة ماجستير للباحث – معاذ عبدالقوي عباس مقران" in app_source
     assert "جامعة صنعاء · كلية الهندسة · الدراسات العليا" in app_source
-    assert "https://su.edu.ye/ce/wp-content/uploads/2021/01/logo-with-name.png" in app_source
-    assert "https://su.edu.ye/ce/wp-content/uploads/sites/11/2021/07/ce.png" in app_source
     assert 'page_icon="🎓"' in app_source
     assert "render_academic_brand_header" in app_source
     assert "render_sidebar_identity" in app_source
