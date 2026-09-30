@@ -1410,20 +1410,26 @@ def main():
     view = _query_param("view", "supervisor").strip().lower()
     researcher_access = view == "researcher"
 
+    render_academic_brand_header(
+        "مساحة الباحث · Researcher workspace"
+        if researcher_access
+        else "عرض المشرف · Supervisor presentation"
+    )
+
     if not researcher_access:
         with st.sidebar:
-            st.markdown("## PMM Visual Tool")
-            st.caption(APP_VERSION)
+            render_sidebar_identity("عرض المشرف · Supervisor view")
             st.success("Supervisor view")
             st.caption("Sanitized presentation only · no Excel upload or workbook access")
 
         package = load_supervisor_snapshot()
         if package is None:
-            st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
             st.info("No supervisor presentation snapshot has been published yet.")
+            render_academic_footer()
             return
 
         render_published_supervisor(package)
+        render_academic_footer()
         return
 
     private_key = _query_param("key", "")
@@ -1432,8 +1438,7 @@ def main():
     cached_entry = load_cached_master() if persistence_enabled else None
 
     with st.sidebar:
-        st.markdown("## PMM Visual Tool")
-        st.caption(APP_VERSION)
+        render_sidebar_identity("مساحة الباحث · Researcher workspace")
         st.info("Researcher workspace")
 
         if persistence_enabled:
@@ -1484,7 +1489,11 @@ def main():
         master_name, master_bytes, _ = cached_entry
 
     if master_bytes is None:
-        st.title(f"PMM Visual Analytics & Presentation Tool — {APP_VERSION}")
+        st.markdown(
+            '<div class="workspace-strip"><span class="label">Researcher workspace</span>'
+            '<span class="meta">Upload a compatible MASTER to begin</span></div>',
+            unsafe_allow_html=True,
+        )
         st.markdown(
             '<div class="readonly-banner"><b>Flexible researcher workflow:</b> Excel MASTER remains the analytical source of truth. '
             'Upload the latest compatible MASTER here; its filename and version may change freely.</div>',
@@ -1496,6 +1505,7 @@ def main():
             )
         else:
             st.info("Upload the current PMM MASTER workbook from the sidebar to begin.")
+        render_academic_footer()
         return
 
     try:
@@ -1545,6 +1555,8 @@ def main():
         render_published_supervisor(package)
     else:
         render_researcher_mode(frames, snapshot, structure)
+
+    render_academic_footer()
 
 
 if __name__ == "__main__":
