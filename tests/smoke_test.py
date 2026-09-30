@@ -9,7 +9,7 @@ import hashlib
 
 import pandas as pd
 
-from master_utils import load_master_workbook, master_snapshot, validate_master, active_themes, retired_themes
+from master_utils import load_master_workbook, master_snapshot, validate_master, active_themes, retired_themes, active_dimensions
 from share_utils import supervisor_share_html
 from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_supervisor_snapshot
 from tree_utils import build_selected_themes_tree_data
@@ -151,6 +151,54 @@ def main():
     live_supervisor = build_supervisor_snapshot(frames)
     assert len(live_supervisor.get("retired_themes", [])) == 1
     assert live_supervisor["retired_themes"][0]["id"] == "THM-016"
+
+    # Current-dimension selection must ignore retained historical/suspended rows
+    # and prefer a later audited working set when canonical current statuses are absent.
+    dim_test = pd.DataFrame([
+        {
+            "Dimension_ID": "DIM-001",
+            "Candidate_Dimension_Name": "Old historical label",
+            "Supporting_Theme_IDs": "THM-001; THM-002",
+            "Underlying_Cluster_IDs": "PCL-001; PCL-002",
+            "Dimension_Status": "Historical / Superseded – excluded from fresh SG4 derivation",
+            "Analytical_Definition": "Old definition",
+            "Core_Capability_Logic": "Old logic",
+        },
+        {
+            "Dimension_ID": "DIM-007",
+            "Candidate_Dimension_Name": "Suspended exploratory candidate",
+            "Supporting_Theme_IDs": "THM-003",
+            "Underlying_Cluster_IDs": "PCL-003",
+            "Dimension_Status": "SUSPENDED – SG4 FROZEN PENDING SG2/SG3 BOUNDARY REPAIR",
+            "Analytical_Definition": "Suspended definition",
+            "Core_Capability_Logic": "Suspended",
+        },
+        {
+            "Dimension_ID": "DIM-001",
+            "Candidate_Dimension_Name": "Current working governance dimension",
+            "Supporting_Theme_IDs": "Strategic alignment; authorization; priority decisions",
+            "Underlying_Cluster_IDs": "Not listed in the working audit block",
+            "Dimension_Status": "",
+            "Analytical_Definition": "Set organizational direction and formal project-choice decisions.",
+            "Core_Capability_Logic": "PASS – PROVISIONAL",
+        },
+        {
+            "Dimension_ID": "DIM-001",
+            "Candidate_Dimension_Name": "Boundary challenge narrative only",
+            "Supporting_Theme_IDs": "",
+            "Underlying_Cluster_IDs": "",
+            "Dimension_Status": "",
+            "Analytical_Definition": "",
+            "Core_Capability_Logic": "",
+        },
+    ])
+    dim_frames = {"08_Candidate_Dimensions": dim_test}
+    current_dims = active_dimensions(dim_frames)
+    assert len(current_dims) == 1
+    assert current_dims.iloc[0]["Candidate_Dimension_Name"] == "Current working governance dimension"
+    assert current_dims.iloc[0]["Dimension_Status"] == "PASS – PROVISIONAL"
+    assert current_dims.iloc[0]["Supporting_Theme_IDs"] == "THM-001; THM-002"
+    assert current_dims.iloc[0]["Underlying_Cluster_IDs"] == "PCL-001; PCL-002"
 
     # Published supervisor snapshot must load from the repository without any Excel file.
     published = load_supervisor_snapshot()
