@@ -65,7 +65,7 @@ from bi_dashboard import render_research_bi_dashboard
 from qualitative_visuals import render_qualitative_visuals
 
 
-APP_VERSION = "v0.13.1"
+APP_VERSION = "v0.13.2"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -128,8 +128,8 @@ html, body, [class*="css"] {font-family:"Segoe UI",Tahoma,Arial,sans-serif;}
   min-height:94px;
 }
 .brand-logo-tile {
-  width:98px;
-  height:104px;
+  width:128px;
+  height:148px;
   border-radius:16px;
   border:1px solid #d8e3ec;
   background-color:rgba(255,255,255,.86);
@@ -138,7 +138,7 @@ html, body, [class*="css"] {font-family:"Segoe UI",Tahoma,Arial,sans-serif;}
   background-size:contain;
   box-shadow:0 4px 14px rgba(18,56,94,.045);
 }
-.brand-logo-tile.university {width:94px; height:104px; background-size:contain;}
+.brand-logo-tile.university {width:112px; height:132px; background-size:contain;}
 .brand-logo-caption {
   color:#4c6478;
   font-size:.68rem;
@@ -274,8 +274,8 @@ hr {border-color:#e3eaf0;}
 @media (max-width:820px) {
   .academic-brand {padding:15px 14px 12px;}
   .brand-grid {grid-template-columns:76px 1fr 76px;gap:8px;}
-  .brand-logo-tile {width:68px;height:74px;}
-  .brand-logo-tile.university {width:66px;height:74px;}
+  .brand-logo-tile {width:84px;height:100px;}
+  .brand-logo-tile.university {width:78px;height:92px;}
   .brand-logo-box {min-height:70px;}
   .brand-title {font-size:1.13rem;}
   .brand-subtitle {font-size:.82rem;}
@@ -285,7 +285,7 @@ hr {border-color:#e3eaf0;}
 @media (max-width:560px) {
   .brand-grid {grid-template-columns:1fr;}
   .brand-logo-box {min-height:auto;}
-  .brand-logo-tile,.brand-logo-tile.university {width:72px;height:78px;}
+  .brand-logo-tile,.brand-logo-tile.university {width:84px;height:96px;}
   .brand-status {justify-content:center;text-align:center;}
 }
 </style>
