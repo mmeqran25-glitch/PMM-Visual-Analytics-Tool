@@ -65,7 +65,7 @@ from bi_dashboard import render_research_bi_dashboard
 from qualitative_visuals import render_qualitative_visuals
 
 
-APP_VERSION = "v0.13.2"
+APP_VERSION = "v0.13.3"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -296,7 +296,7 @@ hr {border-color:#e3eaf0;}
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
 UNIVERSITY_LOGO_PATH = ASSET_DIR / "sanaa_university_logo.jpg"
-ENGINEERING_LOGO_PATH = ASSET_DIR / "faculty_engineering_logo.jpg"
+ENGINEERING_LOGO_PATH = ASSET_DIR / "faculty_engineering_logo.webp"
 
 
 @st.cache_data(show_spinner=False)
@@ -305,7 +305,7 @@ def _local_image_data_uri(path_str: str) -> str:
     path = Path(path_str)
     if not path.exists():
         return ""
-    mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    mime = {"png": "image/png", "webp": "image/webp"}.get(path.suffix.lower().lstrip("."), "image/jpeg")
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:{mime};base64,{encoded}"
 
