@@ -62,6 +62,7 @@ from researcher_cache import (
 )
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
+from prisma_dashboard import render_prisma_dashboard
 import importlib
 import qualitative_visuals as qualitative_visuals_module
 
@@ -71,7 +72,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.14.3"
+APP_VERSION = "v0.14.5"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -1461,6 +1462,20 @@ def main():
             return
 
         render_published_supervisor(package)
+        render_academic_footer()
+        return
+
+    workspace_module = st.radio(
+        "Research workspace module",
+        ["PMM Visual Analytics", "PRISMA 2020"],
+        horizontal=True,
+        key="research_workspace_module",
+        help="Both modules are part of the same academic research platform. Each reads its own source workbook in read-only mode.",
+    )
+    st.divider()
+
+    if workspace_module == "PRISMA 2020":
+        render_prisma_dashboard()
         render_academic_footer()
         return
 
