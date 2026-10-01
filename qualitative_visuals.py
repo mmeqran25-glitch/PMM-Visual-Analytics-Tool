@@ -1065,20 +1065,16 @@ def build_audit_timeline_figure(events: pd.DataFrame) -> go.Figure:
         return go.Figure()
 
     shown = events.copy()
-    has_dates = shown["Date"].notna().any() if "Date" in shown.columns else False
+    has_dates = (
+        "Date" in shown.columns
+        and shown["Date"].notna().all()
+        and len(shown) > 0
+    )
     if has_dates:
-        # Undated events remain positioned by DEC sequence using a separate text-only hover,
-        # while the chronological x-axis uses explicit dates for dated rows.
-        dated = shown[shown["Date"].notna()].copy()
-        x = dated["Date"]
-        plot_df = dated
+        plot_df = shown.sort_values("Date").copy()
+        x = plot_df["Date"]
         x_title = "Decision date"
     else:
-        plot_df = shown.sort_values("DEC_Sequence").copy()
-        x = plot_df["DEC_Sequence"]
-        x_title = "DEC sequence (analytical chronology)"
-
-    if plot_df.empty:
         plot_df = shown.sort_values("DEC_Sequence").copy()
         x = plot_df["DEC_Sequence"]
         x_title = "DEC sequence (analytical chronology)"
