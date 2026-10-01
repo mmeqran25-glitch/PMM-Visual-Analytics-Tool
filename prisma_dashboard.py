@@ -230,9 +230,9 @@ def _stage_button(
     element_key: str | None = None,
 ) -> None:
     """Render a clickable PRISMA box with a unique Streamlit widget identity."""
-    text = f"{label}\\n(n = {value:,})"
+    text = f"{label}\n(n = {value:,})"
     if note:
-        text += f"\\n{note}"
+        text += f"\n{note}"
 
     # focus_key controls the analytical drill-down; element_key only makes
     # the visual widget unique when the same analytical population is shown twice.
