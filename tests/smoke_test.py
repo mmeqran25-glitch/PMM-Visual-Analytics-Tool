@@ -16,7 +16,7 @@ from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_superv
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
-from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image
+from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image, build_theme_boundary_profile, build_negative_deviant_case_matrix
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -341,6 +341,24 @@ def main():
     word_png = build_wordcloud_image(word_freq)
     assert word_png[:8] == b"\x89PNG\r\n\x1a\n"
     assert len(word_png) > 1000
+
+    boundary_profile = build_theme_boundary_profile(frames, "THM-001")
+    assert boundary_profile["Theme_ID"] == "THM-001"
+    assert boundary_profile["Clusters"] == 1
+    assert boundary_profile["FOCs"] == 1
+    assert boundary_profile["Studies"] == 1
+    assert boundary_profile["Central_Organizing_Concept"] == "Concept"
+    assert boundary_profile["Theme_Boundary"] == "Boundary"
+    assert not boundary_profile["Cluster_Table"].empty
+    assert boundary_profile["Boundary_Completeness"]["Operational_Definition"] == 100.0
+    assert boundary_profile["Boundary_Completeness"]["Inclusion_Boundary"] == 100.0
+    assert boundary_profile["Boundary_Completeness"]["Exclusion_Boundary"] == 100.0
+
+    negative_matrix = build_negative_deviant_case_matrix(frames)
+    assert not negative_matrix.empty
+    retired_rows = negative_matrix[negative_matrix["Case_Type"].eq("Retired Theme")]
+    assert "THM-016" in retired_rows["Case_ID"].tolist()
+    assert retired_rows["Current_or_Historical"].eq("Historical").all()
 
     all_sankey = build_all_dimensions_sankey(frames)
     assert len(all_sankey.data) == 1
