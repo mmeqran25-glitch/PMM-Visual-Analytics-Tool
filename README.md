@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.13.4
+# PMM Visual Analytics & Presentation Tool v0.13.5
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -230,6 +230,14 @@ Adds a dedicated researcher-only **Qualitative Visuals** workspace for thesis-re
 - Removes the previous low-resolution logo dependency and uses the cropped source artwork at an appropriate web resolution.
 - Runtime branding explicitly supports WebP.
 - No analytical, BI, traceability or MASTER logic changed.
+
+## v0.13.5 All-Dimensions Sankey overview
+
+- Analytical Sankey now has two scopes: **All Dimensions Overview** and **One Dimension Deep Dive**.
+- The overview displays every active Candidate Dimension and its current Themes.
+- The deep-dive mode retains the detailed Dimension → Theme → PCL/Cluster flow.
+- The overview is intentionally stopped at Theme level to avoid an unreadable all-corpus cluster network.
+- Link weights use mapped FOC counts as an analytical display aid; the visual is not a causal model.
 
 ## Workbook compatibility
 
