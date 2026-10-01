@@ -16,7 +16,7 @@ from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_superv
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
-from qualitative_visuals import build_dimension_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image
+from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -341,6 +341,12 @@ def main():
     word_png = build_wordcloud_image(word_freq)
     assert word_png[:8] == b"\x89PNG\r\n\x1a\n"
     assert len(word_png) > 1000
+
+    all_sankey = build_all_dimensions_sankey(frames)
+    assert len(all_sankey.data) == 1
+    assert all_sankey.data[0].type == "sankey"
+    assert "DIM-001" in list(all_sankey.data[0].customdata[0])
+    assert any("THM-001" in str(x) for x in all_sankey.data[0].customdata)
 
     sankey = build_dimension_sankey(frames, "DIM-001")
     assert len(sankey.data) == 1
