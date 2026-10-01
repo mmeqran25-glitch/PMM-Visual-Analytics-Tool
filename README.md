@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.14.2
+# PMM Visual Analytics & Presentation Tool v0.14.3
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -270,6 +270,18 @@ Adds a researcher-only **ENTREQ Reporting Audit** inside Qualitative Visuals.
 - Provides domain summary and CSV export.
 - ENTREQ status counts are explicitly **not** treated as a methodological quality score.
 - Reference basis: Tong et al. (2012), BMC Medical Research Methodology 12:181.
+
+## v0.14.3 ENTREQ review guidance and Audit-Trail Timeline
+
+- Adds a **Provisional review** and **Review rationale / next action** to each of the 21 ENTREQ items.
+- Provisional review is conservative and never overwrites the researcher's Final Status.
+- Highlights items that are ready to verify, require protocol/thesis confirmation, are pending appraisal, or need final-flow/final-synthesis closure.
+- Adds a researcher-only **Audit-Trail Timeline** to Qualitative Visuals.
+- The timeline reads `11_Decision_Log` and classifies documented decisions such as Split, Merge, Reassignment, Retirement/Withdrawal, Rename, Boundary Review, Creation, Closure and Audit/Review.
+- Explicit dates are used only when all displayed events have recorded dates; otherwise the x-axis uses DEC number as analytical chronology rather than elapsed calendar time.
+- Retirement and reassignment events can also be conservatively enriched from explicit DEC references in Theme/Mapping status metadata.
+- Provides event filters, PNG export, detailed event table and CSV export.
+- Timeline revisions are framed as audit evidence and boundary testing, not as methodological weakness.
 
 ## Workbook compatibility
 

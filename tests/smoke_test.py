@@ -16,7 +16,7 @@ from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_superv
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
-from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image, build_theme_boundary_profile, build_negative_deviant_case_matrix, build_entreq_audit_table, ENTREQ_ITEMS
+from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image, build_theme_boundary_profile, build_negative_deviant_case_matrix, build_entreq_audit_table, build_audit_trail_events, build_audit_timeline_figure, ENTREQ_ITEMS
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -359,6 +359,56 @@ def main():
     coding_hint = entreq.loc[entreq["No."].eq(17), "Project evidence hint"].iloc[0]
     assert coding_hint == "Strong project hint"
 
+    assert "Provisional review" in entreq.columns
+    assert "Review rationale / next action" in entreq.columns
+    assert entreq.loc[entreq["No."].eq(10), "Provisional review"].iloc[0] == "Pending appraisal phase"
+    assert entreq.loc[entreq["No."].eq(17), "Provisional review"].iloc[0] == "Ready – strong evidence"
+
+    timeline_frames = dict(frames)
+    timeline_frames["11_Decision_Log"] = pd.DataFrame([
+        {
+            "Decision_ID": "DEC-401",
+            "Decision_Title": "Boundary review",
+            "Decision_Summary": "Boundary review for PCL-001 and THM-001",
+            "Decision_Rationale": "External heterogeneity check",
+            "Stage": "SG3",
+        },
+        {
+            "Decision_ID": "DEC-402",
+            "Decision_Title": "Cluster split",
+            "Decision_Summary": "Split PCL-001 into two clusters",
+            "Decision_Rationale": "Internal heterogeneity",
+            "Stage": "SG2",
+        },
+        {
+            "Decision_ID": "DEC-403",
+            "Decision_Title": "FOC reassignment",
+            "Decision_Summary": "Reassigned CD-SR001-001 to PCL-002",
+            "Decision_Rationale": "Closer functional fit",
+            "Stage": "SG2",
+        },
+        {
+            "Decision_ID": "DEC-404",
+            "Decision_Title": "Theme retirement",
+            "Decision_Summary": "Retired THM-016 after functional-boundary refinement",
+            "Decision_Rationale": "Superseded structure",
+            "Stage": "SG3",
+        },
+        {
+            "Decision_ID": "DEC-405",
+            "Decision_Title": "Theme merge",
+            "Decision_Summary": "Merged two overlapping Themes",
+            "Decision_Rationale": "Redundant organizing concept",
+            "Stage": "SG3",
+        },
+    ])
+    audit_events = build_audit_trail_events(timeline_frames)
+    assert not audit_events.empty
+    assert audit_events["DEC_Sequence"].min() <= 401
+    assert {"Boundary Review", "Split", "Reassignment", "Retirement / Withdrawal", "Merge"}.issubset(set(audit_events["Event_Type"]))
+    audit_fig = build_audit_timeline_figure(audit_events)
+    assert len(audit_fig.data) >= 1
+
     boundary_profile = build_theme_boundary_profile(frames, "THM-001")
     assert boundary_profile["Theme_ID"] == "THM-001"
     assert boundary_profile["Clusters"] == 1
@@ -498,4 +548,4 @@ if __name__ == "__main__":
 
 def test_qualitative_visual_version_marker():
     import qualitative_visuals
-    assert qualitative_visuals.QUAL_VIS_VERSION == "v0.14.2"
+    assert qualitative_visuals.QUAL_VIS_VERSION == "v0.14.3"

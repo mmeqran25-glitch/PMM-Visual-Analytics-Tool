@@ -65,13 +65,13 @@ from bi_dashboard import render_research_bi_dashboard
 import importlib
 import qualitative_visuals as qualitative_visuals_module
 
-EXPECTED_QUAL_VIS_VERSION = "v0.14.2"
+EXPECTED_QUAL_VIS_VERSION = "v0.14.3"
 if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUAL_VIS_VERSION:
     qualitative_visuals_module = importlib.reload(qualitative_visuals_module)
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.14.2"
+APP_VERSION = "v0.14.3"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
