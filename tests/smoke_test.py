@@ -477,3 +477,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_qualitative_visual_version_marker():
+    import qualitative_visuals
+    assert qualitative_visuals.QUAL_VIS_VERSION == "v0.14.1"
