@@ -12,9 +12,11 @@ from researcher_cache import (
     save_cached_prisma,
     load_cached_prisma,
     clear_cached_prisma,
+    load_cached_master,
 )
+from master_utils import load_master_workbook, validate_master
 
-APP_VERSION = "v0.15.1-prisma"
+APP_VERSION = "v0.15.2-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -641,7 +643,213 @@ def _valid_year_rows(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def render_study_characteristics(metrics: dict) -> None:
+
+def _normalized_study_ids(series: pd.Series) -> pd.Series:
+    return series.fillna("").astype(str).str.strip().str.upper()
+
+
+def _dimension_formation_studies_from_cached_master() -> dict:
+    """Return current PMM dimension-formation eligible Study IDs from the cached PMM MASTER."""
+    cached = load_cached_master()
+    if cached is None:
+        return {
+            "available": False,
+            "filename": "",
+            "eligible_ids": set(),
+            "source_count": 0,
+            "issues": ["No cached PMM MASTER is available."],
+        }
+
+    filename, master_bytes, _ = cached
+    try:
+        frames, _ = load_master_workbook(master_bytes)
+        issues = validate_master(frames)
+    except Exception as exc:
+        return {
+            "available": False,
+            "filename": filename,
+            "eligible_ids": set(),
+            "source_count": 0,
+            "issues": [f"Could not read cached PMM MASTER: {exc}"],
+        }
+
+    if issues:
+        return {
+            "available": False,
+            "filename": filename,
+            "eligible_ids": set(),
+            "source_count": 0,
+            "issues": issues,
+        }
+
+    elig = frames.get("02_Capability_Eligibility", pd.DataFrame()).copy()
+    if elig.empty or "Study_ID" not in elig.columns or "Dimension_Formation_Decision" not in elig.columns:
+        return {
+            "available": False,
+            "filename": filename,
+            "eligible_ids": set(),
+            "source_count": 0,
+            "issues": ["02_Capability_Eligibility is missing the required eligibility fields."],
+        }
+
+    decision = elig["Dimension_Formation_Decision"].fillna("").astype(str).str.strip()
+    eligible_rows = elig.loc[decision.str.casefold().eq("eligible")].copy()
+    ids = set(_normalized_study_ids(eligible_rows["Study_ID"]))
+    ids.discard("")
+
+    src = frames.get("01_Source_Register", pd.DataFrame())
+    source_count = 0
+    if not src.empty and "Study_ID" in src.columns:
+        source_count = int(_normalized_study_ids(src["Study_ID"]).replace("", pd.NA).dropna().nunique())
+
+    return {
+        "available": True,
+        "filename": filename,
+        "eligible_ids": ids,
+        "source_count": source_count,
+        "issues": [],
+    }
+
+
+def render_initial_vs_dimension_evidence(metrics: dict, persistence_enabled: bool) -> None:
+    st.markdown("#### Initial corpus vs dimension-formation evidence base")
+    st.caption(
+        "Cross-workbook comparison: the initial PRISMA screened corpus is matched by Study ID to studies "
+        "classified as Eligible for dimension formation in the current PMM MASTER."
+    )
+
+    if not persistence_enabled:
+        st.info(
+            "This comparison needs the private researcher cache so the PRISMA module can read the current PMM MASTER. "
+            "Open the researcher link with its private key and load the PMM MASTER once."
+        )
+        return
+
+    comparison = _dimension_formation_studies_from_cached_master()
+    if not comparison["available"]:
+        st.info(
+            "Load a valid PMM MASTER once in the PMM Visual Analytics module. "
+            "After it is cached, return here and this comparison will populate automatically."
+        )
+        for issue in comparison.get("issues", []):
+            st.caption(f"• {issue}")
+        return
+
+    screened = metrics.get("row_groups", {}).get("screened", pd.DataFrame()).copy()
+    if screened.empty or "Study ID" not in screened.columns:
+        st.info("The PRISMA screened corpus does not contain Study ID values for cross-workbook matching.")
+        return
+
+    screened["_Study_ID_Normalized"] = _normalized_study_ids(screened["Study ID"])
+    screened = screened[screened["_Study_ID_Normalized"].ne("")].copy()
+    eligible_ids = comparison["eligible_ids"]
+
+    matched = screened[screened["_Study_ID_Normalized"].isin(eligible_ids)].copy()
+    screened_ids = set(screened["_Study_ID_Normalized"].tolist())
+    unmatched_master_ids = sorted(eligible_ids - screened_ids)
+
+    screened_year = _valid_year_rows(screened)
+    matched_year = _valid_year_rows(matched)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Initial screened corpus", f"{screened['_Study_ID_Normalized'].nunique():,}")
+    c2.metric("Dimension-formation eligible in PMM MASTER", f"{len(eligible_ids):,}")
+    c3.metric("Matched to PRISMA screened corpus", f"{matched['_Study_ID_Normalized'].nunique():,}")
+    c4.metric("Eligible IDs not matched", f"{len(unmatched_master_ids):,}")
+
+    st.caption(f"PMM MASTER used: {comparison['filename']}")
+
+    if unmatched_master_ids:
+        with st.expander(f"Inspect unmatched eligible Study IDs ({len(unmatched_master_ids):,})"):
+            st.dataframe(
+                pd.DataFrame({"Study_ID": unmatched_master_ids}),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    if screened_year.empty:
+        st.info("No usable publication years are available in the initial screened corpus.")
+        return
+
+    initial_counts = (
+        screened_year.groupby("_Publication_Year", as_index=False)
+        .size()
+        .rename(columns={"_Publication_Year": "Year", "size": "Studies"})
+    )
+    initial_counts["Evidence base"] = "Initial screened corpus"
+
+    if matched_year.empty:
+        st.info(
+            "The PMM eligible studies were matched by Study ID, but none of the matched records has a usable publication year."
+        )
+        return
+
+    eligible_counts = (
+        matched_year.groupby("_Publication_Year", as_index=False)
+        .size()
+        .rename(columns={"_Publication_Year": "Year", "size": "Studies"})
+    )
+    eligible_counts["Evidence base"] = "Dimension-formation eligible"
+
+    comparison_df = pd.concat([initial_counts, eligible_counts], ignore_index=True)
+    comparison_df = comparison_df.sort_values(["Year", "Evidence base"])
+
+    fig = px.bar(
+        comparison_df,
+        x="Year",
+        y="Studies",
+        color="Evidence base",
+        barmode="group",
+        title="Initial screened corpus vs dimension-formation eligible studies by publication year",
+        labels={"Studies": "Number of records / studies"},
+    )
+    fig.update_layout(
+        xaxis=dict(dtick=1),
+        xaxis_title="Publication year",
+        yaxis_title="Number of records / studies",
+        legend_title_text="Evidence base",
+        margin=dict(l=20, r=20, t=55, b=20),
+    )
+    st.plotly_chart(fig, use_container_width=True, key="prisma_initial_vs_dim_year")
+
+    all_years = sorted(set(initial_counts["Year"]).union(set(eligible_counts["Year"])))
+    retention_rows = []
+    initial_map = dict(zip(initial_counts["Year"], initial_counts["Studies"]))
+    eligible_map = dict(zip(eligible_counts["Year"], eligible_counts["Studies"]))
+    for year in all_years:
+        initial_n = int(initial_map.get(year, 0))
+        eligible_n = int(eligible_map.get(year, 0))
+        retention_rows.append({
+            "Year": int(year),
+            "Initial screened": initial_n,
+            "Dimension-formation eligible": eligible_n,
+            "Eligible share of screened (%)": (eligible_n / initial_n * 100.0) if initial_n else 0.0,
+        })
+
+    retention_df = pd.DataFrame(retention_rows)
+    fig2 = px.line(
+        retention_df,
+        x="Year",
+        y="Eligible share of screened (%)",
+        markers=True,
+        title="Dimension-formation eligible share of the initial screened corpus by year",
+    )
+    fig2.update_layout(
+        xaxis=dict(dtick=1),
+        xaxis_title="Publication year",
+        yaxis_title="Eligible share of screened (%)",
+        margin=dict(l=20, r=20, t=55, b=20),
+    )
+    st.plotly_chart(fig2, use_container_width=True, key="prisma_dimension_retention_year")
+
+    st.info(
+        "Interpretation: the blue/orange comparison shows how the broad initial literature landscape narrows "
+        "to the PMM studies judged eligible for dimension formation. This is a methodological selection profile, "
+        "not a quality ranking of publication years."
+    )
+
+
+def render_study_characteristics(metrics: dict, persistence_enabled: bool = False) -> None:
     st.subheader("Study Characteristics & Temporal Profile")
     st.caption(
         "Supplementary descriptive profile aligned with PRISMA 2020 Item 17. "
@@ -866,6 +1074,9 @@ def render_study_characteristics(metrics: dict) -> None:
             "they can be visualised here without changing the PRISMA flow."
         )
 
+    st.markdown("---")
+    render_initial_vs_dimension_evidence(metrics, persistence_enabled=persistence_enabled)
+
 
 def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
     st.markdown(PRISMA_CSS, unsafe_allow_html=True)
@@ -1003,7 +1214,7 @@ def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
     render_analytical_summary(metrics)
 
     st.divider()
-    render_study_characteristics(metrics)
+    render_study_characteristics(metrics, persistence_enabled=persistence_enabled)
     
     with st.expander("Methodological note for thesis / supervisor"):
         st.markdown(
