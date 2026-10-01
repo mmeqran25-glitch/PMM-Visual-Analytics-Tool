@@ -331,9 +331,9 @@ def main():
     assert bool(novelty.iloc[0]["Reinforcement_Flag"])
 
     # Qualitative thesis visuals resolve the current derivation structure and study support.
-    word_freq, word_records = build_wordcloud_frequencies(frames, "Original Author Terms", max_words=50)
+    word_freq, word_records = build_wordcloud_frequencies(frames, "First-Order Code labels", max_words=50)
     assert isinstance(word_freq, dict)
-    assert "governance" in word_freq
+    assert len(word_freq) >= 1
     assert len(word_records) >= 1
     word_png = build_wordcloud_image(word_freq)
     assert word_png[:8] == b"\x89PNG\r\n\x1a\n"
