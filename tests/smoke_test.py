@@ -167,12 +167,12 @@ def main():
     assert "padding-top:2.85rem !important" in app_source
     assert "_local_image_data_uri" in app_source
     assert 'ASSET_DIR / "sanaa_university_logo.jpg"' in app_source
-    assert 'ASSET_DIR / "faculty_engineering_logo.jpg"' in app_source
+    assert 'ASSET_DIR / "faculty_engineering_logo.webp"' in app_source
     assert (Path("assets") / "sanaa_university_logo.jpg").exists()
-    assert (Path("assets") / "faculty_engineering_logo.jpg").exists()
+    assert (Path("assets") / "faculty_engineering_logo.webp").exists()
     from PIL import Image
-    logo = Image.open(Path("assets") / "faculty_engineering_logo.jpg")
-    assert logo.width >= 450 and logo.height >= 500
+    logo = Image.open(Path("assets") / "faculty_engineering_logo.webp")
+    assert logo.width >= 170 and logo.height >= 240
 
     arbitrary_filename = "THIS_NAME_CAN_CHANGE_EVERY_DAY_v2045.xlsx"
     payload = build_workbook()
