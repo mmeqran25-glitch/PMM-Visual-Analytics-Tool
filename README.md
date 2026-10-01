@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.14.0
+# PMM Visual Analytics & Presentation Tool v0.14.1
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -249,6 +249,13 @@ Adds two researcher-only qualitative rigor outputs:
 - Current and historical cases can be filtered separately and exported as CSV.
 - The interface explicitly treats these cases as audit evidence and boundary-testing material, not as errors or failures.
 - All outputs are read-only and derived from the current workbook.
+
+## v0.14.1 Qualitative module refresh safeguard
+
+- Adds an explicit version marker to the Qualitative Visuals module.
+- The app checks the loaded module version and reloads it when Streamlit is holding an older in-memory copy after deployment.
+- Ensures newly added qualitative options such as Theme Boundary Cards and Negative / Deviant Cases appear immediately after redeploy.
+- No analytical or MASTER logic changed.
 
 ## Workbook compatibility
 
