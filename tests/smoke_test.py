@@ -16,7 +16,7 @@ from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_superv
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
-from qualitative_visuals import build_dimension_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure
+from qualitative_visuals import build_dimension_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image
 from researcher_cache import (
     token_matches,
     save_cached_master,
