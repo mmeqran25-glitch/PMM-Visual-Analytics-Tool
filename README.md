@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.14.1
+# PMM Visual Analytics & Presentation Tool v0.14.2
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -256,6 +256,20 @@ Adds two researcher-only qualitative rigor outputs:
 - The app checks the loaded module version and reloads it when Streamlit is holding an older in-memory copy after deployment.
 - Ensures newly added qualitative options such as Theme Boundary Cards and Negative / Deviant Cases appear immediately after redeploy.
 - No analytical or MASTER logic changed.
+
+## v0.14.2 ENTREQ Reporting Audit
+
+Adds a researcher-only **ENTREQ Reporting Audit** inside Qualitative Visuals.
+
+- Implements all **21 ENTREQ reporting items** across the five original domains: Introduction; Methods & methodology; Literature search & selection; Appraisal; Synthesis of findings.
+- Each item can be marked **Not assessed / Covered / Partial / Missing / N/A** during the current session.
+- Adds a thesis-location/note field so the researcher can record where each reporting requirement is addressed.
+- Uses conservative MASTER-based evidence hints to point to relevant project artefacts without claiming automatic compliance.
+- Strong hints are available where the MASTER directly contains relevant structures such as Study Profile, Verbatim Evidence, First-Order Coding, De Novo Clustering, Themes and Candidate Dimensions.
+- Items requiring narrative/protocol confirmation are explicitly labelled for manual checking.
+- Provides domain summary and CSV export.
+- ENTREQ status counts are explicitly **not** treated as a methodological quality score.
+- Reference basis: Tong et al. (2012), BMC Medical Research Methodology 12:181.
 
 ## Workbook compatibility
 

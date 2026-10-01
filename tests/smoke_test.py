@@ -16,7 +16,7 @@ from snapshot_utils import load_supervisor_snapshot, nodes_of_type, build_superv
 from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
-from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image, build_theme_boundary_profile, build_negative_deviant_case_matrix
+from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image, build_theme_boundary_profile, build_negative_deviant_case_matrix, build_entreq_audit_table, ENTREQ_ITEMS
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -342,6 +342,23 @@ def main():
     assert word_png[:8] == b"\x89PNG\r\n\x1a\n"
     assert len(word_png) > 1000
 
+    entreq = build_entreq_audit_table(frames)
+    assert len(ENTREQ_ITEMS) == 21
+    assert len(entreq) == 21
+    assert entreq["No."].tolist() == list(range(1, 22))
+    assert set(entreq["Domain"]) == {
+        "Introduction",
+        "Methods & methodology",
+        "Literature search & selection",
+        "Appraisal",
+        "Synthesis of findings",
+    }
+    assert set(entreq["Status"]) == {"Not assessed"}
+    study_char = entreq.loc[entreq["No."].eq(8), "Project evidence hint"].iloc[0]
+    assert study_char == "Strong project hint"
+    coding_hint = entreq.loc[entreq["No."].eq(17), "Project evidence hint"].iloc[0]
+    assert coding_hint == "Strong project hint"
+
     boundary_profile = build_theme_boundary_profile(frames, "THM-001")
     assert boundary_profile["Theme_ID"] == "THM-001"
     assert boundary_profile["Clusters"] == 1
@@ -481,4 +498,4 @@ if __name__ == "__main__":
 
 def test_qualitative_visual_version_marker():
     import qualitative_visuals
-    assert qualitative_visuals.QUAL_VIS_VERSION == "v0.14.1"
+    assert qualitative_visuals.QUAL_VIS_VERSION == "v0.14.2"

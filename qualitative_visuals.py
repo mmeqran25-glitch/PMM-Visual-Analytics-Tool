@@ -16,7 +16,7 @@ from wordcloud import STOPWORDS, WordCloud
 
 from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids)
 
-QUAL_VIS_VERSION = "v0.14.1"
+QUAL_VIS_VERSION = "v0.14.2"
 
 PLOT_CONFIG = {
     "displaylogo": False,
@@ -724,6 +724,203 @@ def render_negative_deviant_cases(frames: Dict[str, pd.DataFrame]) -> None:
     )
 
 
+
+ENTREQ_ITEMS = [
+    (1, "Introduction", "Aim", "State the research question addressed by the qualitative synthesis."),
+    (2, "Methods & methodology", "Synthesis methodology", "Identify the synthesis methodology or theoretical framework and justify why it was selected."),
+    (3, "Literature search & selection", "Approach to searching", "Report whether searching was pre-planned/comprehensive or iterative/concept-driven."),
+    (4, "Literature search & selection", "Inclusion criteria", "Specify inclusion and exclusion criteria used to determine eligible studies."),
+    (5, "Literature search & selection", "Data sources", "Describe the information sources searched and when they were searched, with rationale where relevant."),
+    (6, "Literature search & selection", "Electronic search strategy", "Report the electronic search strategy, including core concepts, limits and qualitative-search terms where used."),
+    (7, "Literature search & selection", "Study screening methods", "Describe title/abstract/full-text screening and who performed screening."),
+    (8, "Literature search & selection", "Study characteristics", "Present key characteristics of the included studies."),
+    (9, "Literature search & selection", "Study selection results", "Report numbers screened/included/excluded and reasons for exclusion as appropriate."),
+    (10, "Appraisal", "Rationale for appraisal", "Explain why and how included studies or findings were appraised."),
+    (11, "Appraisal", "Appraisal items", "Identify the appraisal tool, framework or criteria and the domains assessed."),
+    (12, "Appraisal", "Appraisal process", "Report who performed appraisal and how disagreements or consensus were handled."),
+    (13, "Appraisal", "Appraisal results", "Present appraisal results and explain whether appraisal affected inclusion, weighting or interpretation."),
+    (14, "Synthesis of findings", "Data extraction", "State which parts of primary studies were analysed and how data were extracted."),
+    (15, "Synthesis of findings", "Software", "Report software used for extraction, coding, management or synthesis, where applicable."),
+    (16, "Synthesis of findings", "Number of reviewers", "Identify who participated in coding and analysis."),
+    (17, "Synthesis of findings", "Coding", "Describe how the data were coded."),
+    (18, "Synthesis of findings", "Study comparison", "Explain how comparisons were made within and across studies during synthesis."),
+    (19, "Synthesis of findings", "Derivation of themes", "Explain whether themes/constructs were derived inductively, deductively, or through a combined approach."),
+    (20, "Synthesis of findings", "Quotations", "Use source-near quotations/extracts to illustrate themes or constructs and identify their provenance appropriately."),
+    (21, "Synthesis of findings", "Synthesis output", "Present an interpretive synthesis that goes beyond a simple summary, such as an analytical framework, model, construct or higher-order interpretation."),
+]
+
+
+def _sheet_has_rows(frames: Dict[str, pd.DataFrame], sheet: str) -> bool:
+    df = frames.get(sheet, pd.DataFrame())
+    return isinstance(df, pd.DataFrame) and not df.empty
+
+
+def _entreq_evidence_hint(frames: Dict[str, pd.DataFrame], item_no: int) -> tuple[str, str]:
+    """Return evidence availability and a conservative project-specific hint.
+
+    Hints show where documentation may exist. They do not judge ENTREQ compliance.
+    """
+    if item_no == 1:
+        return "Manual thesis check", "Research question/objectives are not established by the MASTER alone; verify the thesis introduction."
+    if item_no == 2:
+        if all(_sheet_has_rows(frames, s) for s in ["04_Verbatim_Evidence", "05_First_Order_Coding", "06_DeNovo_Clustering", "07_Descriptive_Themes"]):
+            return "Strong project hint", "The MASTER records a staged synthesis chain (verbatim evidence → FOC → clustering → Themes), but the methodological rationale still needs explicit thesis reporting."
+        return "Manual thesis check", "Methodological rationale must be checked in the thesis methods."
+    if item_no == 3:
+        return "Manual protocol check", "Search approach cannot be established reliably from the current core analytical sheets."
+    if item_no == 4:
+        if _sheet_has_rows(frames, "02_Capability_Eligibility"):
+            return "Partial project hint", "Eligibility decisions are recorded in 02_Capability_Eligibility; verify that full inclusion/exclusion criteria are explicitly reported in the thesis/protocol."
+        return "Manual protocol check", "Verify explicit inclusion/exclusion criteria in the protocol."
+    if item_no == 5:
+        if _sheet_has_rows(frames, "01_Source_Register"):
+            return "Partial project hint", "01_Source_Register provides source-level traceability; verify databases, grey-literature sources, dates and rationale in the written methods."
+        return "Manual protocol check", "Data-source reporting is not inferable from current analytical sheets."
+    if item_no == 6:
+        return "Manual protocol check", "Full electronic search strings and limits should be verified against the search protocol/appendix."
+    if item_no == 7:
+        if _sheet_has_rows(frames, "02_Capability_Eligibility"):
+            return "Partial project hint", "Eligibility decisions exist, but reviewer roles and screening stages require explicit written-method confirmation."
+        return "Manual thesis check", "Screening stages and reviewer roles need written-method confirmation."
+    if item_no == 8:
+        if _sheet_has_rows(frames, "03_Study_Profile"):
+            return "Strong project hint", "03_Study_Profile contains study-level characteristics and can support the study-characteristics table."
+        return "Manual thesis check", "No populated 03_Study_Profile was detected."
+    if item_no == 9:
+        if _sheet_has_rows(frames, "01_Source_Register") and _sheet_has_rows(frames, "02_Capability_Eligibility"):
+            return "Partial project hint", "Source and eligibility registers can support counts/reasons, but final screening-flow reporting must be verified."
+        return "Manual protocol check", "Study-selection results require protocol/flow-diagram verification."
+    if item_no in {10, 11, 12, 13}:
+        return "Manual appraisal check", "The current core MASTER does not by itself establish the complete appraisal rationale, tool, reviewer process and reported results."
+    if item_no == 14:
+        if _sheet_has_rows(frames, "04_Verbatim_Evidence"):
+            return "Strong project hint", "04_Verbatim_Evidence records extracted source-near evidence units and study provenance."
+        return "Manual thesis check", "No populated verbatim-evidence sheet was detected."
+    if item_no == 15:
+        return "Manual thesis check", "Software use should be stated explicitly in Methods; the analytical workbook/application alone should not substitute for that statement."
+    if item_no == 16:
+        return "Manual thesis check", "Number and role of reviewers/coders cannot be inferred reliably from the workbook."
+    if item_no == 17:
+        if _sheet_has_rows(frames, "05_First_Order_Coding"):
+            return "Strong project hint", "05_First_Order_Coding records the FOC stage and traceability to evidence units."
+        return "Manual thesis check", "No populated first-order coding sheet was detected."
+    if item_no == 18:
+        if _sheet_has_rows(frames, "06_DeNovo_Clustering"):
+            return "Strong project hint", "06_DeNovo_Clustering records code-to-cluster comparisons/mappings; written Methods should explain the constant-comparison logic."
+        return "Manual thesis check", "Cross-study comparison logic needs explicit documentation."
+    if item_no == 19:
+        if _sheet_has_rows(frames, "07_Descriptive_Themes") and _sheet_has_rows(frames, "08_Candidate_Dimensions"):
+            return "Strong project hint", "07_Descriptive_Themes and 08_Candidate_Dimensions provide a traceable higher-order derivation structure."
+        return "Manual thesis check", "Theme/construct derivation needs explicit explanation."
+    if item_no == 20:
+        if _sheet_has_rows(frames, "04_Verbatim_Evidence"):
+            return "Strong project hint", "Source-near verbatim evidence is retained in 04_Verbatim_Evidence; select representative extracts with provenance for reporting."
+        return "Manual thesis check", "Representative source-near extracts need verification."
+    if item_no == 21:
+        if _sheet_has_rows(frames, "08_Candidate_Dimensions"):
+            return "Strong project hint", "08_Candidate_Dimensions plus the derivation visuals support a higher-order synthesis output beyond simple study summary."
+        return "Manual thesis check", "Higher-order synthesis output needs verification."
+    return "Manual check", "Verify reporting in the thesis and supporting appendices."
+
+
+def build_entreq_audit_table(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    rows = []
+    for no, domain, item, guide in ENTREQ_ITEMS:
+        evidence_level, hint = _entreq_evidence_hint(frames, no)
+        rows.append({
+            "No.": no,
+            "Domain": domain,
+            "ENTREQ item": item,
+            "Reporting expectation": guide,
+            "Project evidence hint": evidence_level,
+            "Where to verify / current evidence": hint,
+            "Status": "Not assessed",
+            "Thesis location / note": "",
+        })
+    return pd.DataFrame(rows)
+
+
+def render_entreq_reporting_audit(frames: Dict[str, pd.DataFrame]) -> None:
+    st.markdown("### ENTREQ Reporting Audit")
+    st.caption(
+        "ENTREQ = Enhancing Transparency in Reporting the Synthesis of Qualitative Research. "
+        "This is a reporting-transparency checklist, not a study-quality score."
+    )
+    st.info(
+        "Source: Tong et al. (2012), BMC Medical Research Methodology 12:181. "
+        "The original ENTREQ statement contains 21 items across five domains. "
+        "It was developed for qualitative research synthesis; use here is a transparency cross-check for the thesis synthesis."
+    )
+
+    base = build_entreq_audit_table(frames)
+    if "entreq_audit_editor" not in st.session_state:
+        st.session_state["entreq_audit_editor"] = base.copy()
+
+    current = st.session_state["entreq_audit_editor"].copy()
+    # Refresh evidence hints from the current MASTER while preserving researcher-entered status/notes.
+    refreshed = base.copy()
+    if len(current) == len(refreshed):
+        refreshed["Status"] = current["Status"].astype(str).tolist()
+        refreshed["Thesis location / note"] = current["Thesis location / note"].astype(str).tolist()
+
+    edited = st.data_editor(
+        refreshed,
+        use_container_width=True,
+        hide_index=True,
+        height=720,
+        disabled=[
+            "No.", "Domain", "ENTREQ item", "Reporting expectation",
+            "Project evidence hint", "Where to verify / current evidence",
+        ],
+        column_config={
+            "No.": st.column_config.NumberColumn(width="small"),
+            "Domain": st.column_config.TextColumn(width="medium"),
+            "ENTREQ item": st.column_config.TextColumn(width="medium"),
+            "Reporting expectation": st.column_config.TextColumn(width="large"),
+            "Project evidence hint": st.column_config.TextColumn(width="medium"),
+            "Where to verify / current evidence": st.column_config.TextColumn(width="large"),
+            "Status": st.column_config.SelectboxColumn(
+                options=["Not assessed", "Covered", "Partial", "Missing", "N/A"],
+                required=True,
+                width="medium",
+            ),
+            "Thesis location / note": st.column_config.TextColumn(width="large"),
+        },
+        key="entreq_reporting_editor_widget",
+    )
+    st.session_state["entreq_audit_editor"] = edited.copy()
+
+    counts = edited["Status"].value_counts()
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Covered", int(counts.get("Covered", 0)))
+    c2.metric("Partial", int(counts.get("Partial", 0)))
+    c3.metric("Missing", int(counts.get("Missing", 0)))
+    c4.metric("Not assessed", int(counts.get("Not assessed", 0)))
+    c5.metric("N/A", int(counts.get("N/A", 0)))
+
+    st.download_button(
+        "Download ENTREQ audit (CSV)",
+        edited.to_csv(index=False).encode("utf-8-sig"),
+        "ENTREQ_Reporting_Audit.csv",
+        "text/csv",
+        use_container_width=True,
+    )
+
+    with st.expander("ENTREQ domain summary", expanded=False):
+        domain_summary = (
+            edited.groupby(["Domain", "Status"]).size()
+            .unstack(fill_value=0)
+            .reset_index()
+        )
+        st.dataframe(domain_summary, use_container_width=True, hide_index=True)
+
+    st.warning(
+        "Do not interpret the number of Covered items as a methodological quality score. "
+        "A status of Covered means the reporting requirement has been located and documented; "
+        "it does not independently validate the underlying methodological decision."
+    )
+
+
 def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown(
         '<div class="note-banner"><b>Qualitative Visual Outputs:</b> '
@@ -734,7 +931,7 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
 
     visual = st.radio(
         "Qualitative visual",
-        ["Analytical Sankey", "Theme Boundary Cards", "Negative / Deviant Cases", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
+        ["Analytical Sankey", "Theme Boundary Cards", "Negative / Deviant Cases", "ENTREQ Reporting Audit", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
         horizontal=True, key="qualitative_visual_choice"
     )
     st.divider()
@@ -792,6 +989,9 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
 
     elif visual == "Negative / Deviant Cases":
         render_negative_deviant_cases(frames)
+
+    elif visual == "ENTREQ Reporting Audit":
+        render_entreq_reporting_audit(frames)
 
     elif visual == "Theme × Study Heatmap":
         c1, c2 = st.columns(2)
