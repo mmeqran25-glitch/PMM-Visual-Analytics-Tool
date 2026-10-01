@@ -14,7 +14,7 @@ import streamlit as st
 from matplotlib import pyplot as plt
 from wordcloud import STOPWORDS, WordCloud
 
-from master_utils import active_dimensions, active_themes, cluster_members, dimension_theme_map, split_ids
+from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids)
 
 PLOT_CONFIG = {
     "displaylogo": False,
@@ -444,6 +444,284 @@ def build_wordcloud_image(
     return buffer.getvalue()
 
 
+def build_theme_boundary_profile(frames: Dict[str, pd.DataFrame], theme_id: str) -> Dict[str, object]:
+    """Build a source-grounded boundary profile for one current Theme."""
+    themes = active_themes(frames)
+    if themes.empty or "Theme_ID" not in themes.columns:
+        return {}
+    row = themes[themes["Theme_ID"].astype(str).str.strip().eq(str(theme_id).strip())]
+    if row.empty:
+        return {}
+    theme = row.iloc[0].to_dict()
+    cids = split_ids(theme.get("Included_Cluster_IDs"), "PCL")
+
+    creg = active_cluster_register(frames)
+    if not creg.empty and "Cluster_ID" in creg.columns:
+        clusters = creg[creg["Cluster_ID"].astype(str).str.strip().isin(cids)].copy()
+    else:
+        clusters = pd.DataFrame()
+
+    member_parts = []
+    for cid in cids:
+        part = cluster_members(frames, cid)
+        if not part.empty:
+            part = part.copy()
+            part["Cluster_ID_Profile"] = cid
+            member_parts.append(part)
+    members = pd.concat(member_parts, ignore_index=True) if member_parts else pd.DataFrame()
+
+    dmap = dimension_theme_map(frames)
+    dim_ids = []
+    if not dmap.empty:
+        dim_ids = (
+            dmap.loc[dmap["Theme_ID"].astype(str).str.strip().eq(str(theme_id).strip()), "Dimension_ID"]
+            .dropna().astype(str).str.strip().drop_duplicates().tolist()
+        )
+
+    cluster_rows = []
+    for cid in cids:
+        crow = {}
+        if not clusters.empty:
+            hit = clusters[clusters["Cluster_ID"].astype(str).str.strip().eq(cid)]
+            if not hit.empty:
+                crow = hit.iloc[0].to_dict()
+        mm = members[members["Cluster_ID_Profile"].eq(cid)].copy() if not members.empty else pd.DataFrame()
+        cluster_rows.append({
+            "Cluster_ID": cid,
+            "Cluster_Label": _txt(crow.get("Working_Cluster_Label")),
+            "Cluster_Status": _txt(crow.get("Cluster_Status")),
+            "Operational_Definition": _txt(crow.get("Operational_Definition")),
+            "Inclusion_Boundary": _txt(crow.get("Inclusion_Boundary")),
+            "Exclusion_Boundary": _txt(crow.get("Exclusion_Boundary")),
+            "Nearest_Conceptual_Neighbours": _txt(crow.get("Nearest_Conceptual_Neighbours")),
+            "FOCs": int(mm["Code_ID"].nunique()) if not mm.empty and "Code_ID" in mm.columns else 0,
+            "Studies": int(mm["Study_ID"].nunique()) if not mm.empty and "Study_ID" in mm.columns else 0,
+        })
+    cluster_table = pd.DataFrame(cluster_rows)
+
+    challenged = challenged_foc_table(frames)
+    challenged_count = 0
+    if not challenged.empty and cids:
+        blob_cols = [x for x in ["Closest_Competing_Cluster", "Boundary_Rationale", "Alternative_Code_Considered"] if x in challenged.columns]
+        if blob_cols:
+            blob = challenged[blob_cols].fillna("").astype(str).agg(" ".join, axis=1)
+            challenged_count = int(blob.map(lambda x: any(cid in x for cid in cids)).sum())
+
+    boundary_fields = ["Operational_Definition", "Inclusion_Boundary", "Exclusion_Boundary"]
+    completeness = {}
+    for col in boundary_fields:
+        if cluster_table.empty or col not in cluster_table.columns:
+            completeness[col] = 0.0
+        else:
+            completeness[col] = float(cluster_table[col].fillna("").astype(str).str.strip().ne("").mean() * 100)
+
+    return {
+        "Theme_ID": _txt(theme.get("Theme_ID")),
+        "Theme_Label": _txt(theme.get("Working_Theme_Label")),
+        "Theme_Status": _txt(theme.get("Theme_Status")),
+        "Central_Organizing_Concept": _txt(theme.get("Central_Organizing_Concept")),
+        "Theme_Boundary": _txt(theme.get("Theme_Boundary")),
+        "Closest_Competing_Theme": _txt(theme.get("Closest_Competing_Theme")),
+        "Dimension_IDs": dim_ids,
+        "Cluster_IDs": cids,
+        "Clusters": len(cids),
+        "FOCs": int(members["Code_ID"].nunique()) if not members.empty and "Code_ID" in members.columns else 0,
+        "Studies": int(members["Study_ID"].nunique()) if not members.empty and "Study_ID" in members.columns else 0,
+        "Evidence_Units": int(members["Evidence_ID"].nunique()) if not members.empty and "Evidence_ID" in members.columns else 0,
+        "Challenged_Boundary_Cases": challenged_count,
+        "Boundary_Completeness": completeness,
+        "Cluster_Table": cluster_table,
+    }
+
+
+def build_negative_deviant_case_matrix(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Consolidate current and resolved boundary/deviant cases without treating them as failures."""
+    rows = []
+
+    challenged = challenged_foc_table(frames)
+    current_maps = current_mapping_rows(frames)
+    cluster_lookup = {}
+    if not current_maps.empty and "Code_ID" in current_maps.columns:
+        for _, r in current_maps.iterrows():
+            cid = _txt(r.get("Cluster_ID"))
+            if _txt(r.get("Code_ID")):
+                cluster_lookup[_txt(r.get("Code_ID"))] = cid
+
+    if not challenged.empty:
+        for _, r in challenged.iterrows():
+            cid = _txt(r.get("Code_ID"))
+            rows.append({
+                "Case_Type": "Challenged FOC",
+                "Case_ID": cid,
+                "Current_or_Historical": "Current",
+                "Status": "Challenged",
+                "Study_ID": _txt(r.get("Study_ID")),
+                "Cluster_or_Theme": cluster_lookup.get(cid, ""),
+                "Closest_Alternative": _txt(r.get("Closest_Competing_Cluster")) or _txt(r.get("Alternative_Code_Considered")),
+                "Boundary_or_Rationale": _txt(r.get("Boundary_Rationale")) or _txt(r.get("Mapping_Rationale")) or _txt(r.get("Source_to_Code_Rationale")),
+                "Source_Near_Text": _txt(r.get("Meaning_Unit_Verbatim")) or _txt(r.get("Original_Author_Term")),
+            })
+
+    provisional = provisional_cluster_summary(frames)
+    if not provisional.empty:
+        for _, r in provisional.iterrows():
+            rows.append({
+                "Case_Type": "Provisional Cluster",
+                "Case_ID": _txt(r.get("Cluster_ID")),
+                "Current_or_Historical": "Current",
+                "Status": _txt(r.get("Cluster_Status")),
+                "Study_ID": "",
+                "Cluster_or_Theme": _txt(r.get("Theme_IDs")),
+                "Closest_Alternative": _txt(r.get("Nearest_Conceptual_Neighbours")),
+                "Boundary_or_Rationale": _txt(r.get("Challenge_Review_Decision")) or _txt(r.get("Audit_Rationale")) or _txt(r.get("Operational_Definition")),
+                "Source_Near_Text": "",
+            })
+
+    retired = retired_themes(frames)
+    if not retired.empty:
+        for _, r in retired.iterrows():
+            rows.append({
+                "Case_Type": "Retired Theme",
+                "Case_ID": _txt(r.get("Theme_ID")),
+                "Current_or_Historical": "Historical",
+                "Status": _txt(r.get("Theme_Status")),
+                "Study_ID": "",
+                "Cluster_or_Theme": _txt(r.get("Included_Cluster_IDs")),
+                "Closest_Alternative": _txt(r.get("Closest_Competing_Theme")),
+                "Boundary_or_Rationale": _txt(r.get("Theme_Boundary")) or _txt(r.get("Central_Organizing_Concept")),
+                "Source_Near_Text": "",
+            })
+
+    maps = frames.get("06_DeNovo_Clustering", pd.DataFrame()).copy()
+    if not maps.empty and "Mapping_Status" in maps.columns:
+        status = maps["Mapping_Status"].fillna("").astype(str)
+        hist = maps[
+            status.str.contains(r"Reassigned|Withdrawn", case=False, regex=True, na=False)
+        ].copy()
+        if "Code_ID" in hist.columns:
+            hist = hist[hist["Code_ID"].fillna("").astype(str).str.match(r"^CD-", case=False, na=False)]
+        for _, r in hist.iterrows():
+            rows.append({
+                "Case_Type": "Resolved Reassignment",
+                "Case_ID": _txt(r.get("Code_ID")),
+                "Current_or_Historical": "Historical",
+                "Status": _txt(r.get("Mapping_Status")),
+                "Study_ID": _txt(r.get("Study_ID")),
+                "Cluster_or_Theme": _txt(r.get("Cluster_ID")),
+                "Closest_Alternative": _txt(r.get("Closest_Competing_Cluster")),
+                "Boundary_or_Rationale": _txt(r.get("Boundary_Rationale")) or _txt(r.get("Mapping_Rationale")),
+                "Source_Near_Text": "",
+            })
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return pd.DataFrame(columns=[
+            "Case_Type", "Case_ID", "Current_or_Historical", "Status", "Study_ID",
+            "Cluster_or_Theme", "Closest_Alternative", "Boundary_or_Rationale", "Source_Near_Text",
+        ])
+    return out.drop_duplicates().reset_index(drop=True)
+
+
+def render_theme_boundary_cards(frames: Dict[str, pd.DataFrame]) -> None:
+    themes = active_themes(frames)
+    if themes.empty:
+        st.info("No current Themes are available.")
+        return
+    labels = dict(zip(themes["Theme_ID"].astype(str), themes["Working_Theme_Label"].astype(str)))
+    tid = st.selectbox(
+        "Theme",
+        themes["Theme_ID"].astype(str).tolist(),
+        format_func=lambda x: f"{x} — {labels.get(x, '')}",
+        key="qual_boundary_theme",
+    )
+    p = build_theme_boundary_profile(frames, tid)
+    if not p:
+        st.info("No boundary profile could be built for the selected Theme.")
+        return
+
+    st.markdown(f"### {p['Theme_ID']} — {p['Theme_Label']}")
+    st.caption(f"Status: {p['Theme_Status']} · Dimension(s): {', '.join(p['Dimension_IDs']) or 'Not currently assigned'}")
+
+    a, b, c, d, e = st.columns(5)
+    a.metric("Clusters", p["Clusters"])
+    b.metric("FOCs", p["FOCs"])
+    c.metric("Studies", p["Studies"])
+    d.metric("Evidence units", p["Evidence_Units"])
+    e.metric("Boundary cases", p["Challenged_Boundary_Cases"])
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Central organizing concept**")
+        st.write(p["Central_Organizing_Concept"] or "Not explicitly populated in the current MASTER.")
+        st.markdown("**Theme boundary**")
+        st.write(p["Theme_Boundary"] or "Not explicitly populated in the current MASTER.")
+    with right:
+        st.markdown("**Closest competing Theme**")
+        st.write(p["Closest_Competing_Theme"] or "No competing Theme explicitly recorded.")
+        comp = p["Boundary_Completeness"]
+        st.markdown("**Cluster-level boundary documentation completeness**")
+        st.write(
+            f"Definition {comp.get('Operational_Definition', 0):.0f}% · "
+            f"Inclusion {comp.get('Inclusion_Boundary', 0):.0f}% · "
+            f"Exclusion {comp.get('Exclusion_Boundary', 0):.0f}%"
+        )
+
+    table = p["Cluster_Table"]
+    if isinstance(table, pd.DataFrame) and not table.empty:
+        st.markdown("#### Constituent PCL/Cluster boundary table")
+        st.dataframe(table, use_container_width=True, hide_index=True, height=min(520, 85 + 38 * len(table)))
+        st.download_button(
+            "Download Theme boundary table (CSV)",
+            table.to_csv(index=False).encode("utf-8-sig"),
+            f"{tid}_Theme_Boundary_Table.csv",
+            "text/csv",
+            use_container_width=True,
+        )
+
+    st.info(
+        "Interpretation safeguard: boundary completeness describes documentation coverage, not Theme quality. "
+        "Theme adequacy still depends on conceptual coherence, internal homogeneity, external heterogeneity, and source fidelity."
+    )
+
+
+def render_negative_deviant_cases(frames: Dict[str, pd.DataFrame]) -> None:
+    matrix = build_negative_deviant_case_matrix(frames)
+    if matrix.empty:
+        st.success("No challenged, provisional, retired, or reassigned boundary cases are recorded in the current workbook.")
+        return
+
+    st.markdown("### Negative / Deviant Case Matrix")
+    st.caption(
+        "This audit display makes non-fitting, contested, provisional, retired, and reassigned cases visible rather than forcing them into the current structure."
+    )
+
+    counts = matrix["Case_Type"].value_counts().rename_axis("Case type").reset_index(name="Cases")
+    st.dataframe(counts, use_container_width=True, hide_index=True)
+
+    types = matrix["Case_Type"].drop_duplicates().tolist()
+    selected = st.multiselect("Case types", types, default=types, key="qual_negative_case_types")
+    scope = st.radio("Scope", ["All", "Current only", "Historical only"], horizontal=True, key="qual_negative_scope")
+
+    shown = matrix[matrix["Case_Type"].isin(selected)].copy()
+    if scope == "Current only":
+        shown = shown[shown["Current_or_Historical"].eq("Current")].copy()
+    elif scope == "Historical only":
+        shown = shown[shown["Current_or_Historical"].eq("Historical")].copy()
+
+    st.dataframe(shown, use_container_width=True, hide_index=True, height=520)
+    st.download_button(
+        "Download negative/deviant case matrix (CSV)",
+        shown.to_csv(index=False).encode("utf-8-sig"),
+        "PMM_Negative_Deviant_Case_Matrix.csv",
+        "text/csv",
+        use_container_width=True,
+    )
+    st.info(
+        "Methodological note: these rows are not labelled as errors. They document analytic tension, boundary testing, "
+        "provisionality, retirement, or reassignment and therefore strengthen the audit trail when interpreted with the recorded rationale."
+    )
+
+
 def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown(
         '<div class="note-banner"><b>Qualitative Visual Outputs:</b> '
@@ -454,7 +732,7 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
 
     visual = st.radio(
         "Qualitative visual",
-        ["Analytical Sankey", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
+        ["Analytical Sankey", "Theme Boundary Cards", "Negative / Deviant Cases", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
         horizontal=True, key="qualitative_visual_choice"
     )
     st.divider()
@@ -506,6 +784,12 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
                 "to its supporting Themes and PCL/Clusters. Link widths represent currently mapped First-Order Codes."
             )
             st.info("Interpret this as an analytical derivation structure, not as a causal model.")
+
+    elif visual == "Theme Boundary Cards":
+        render_theme_boundary_cards(frames)
+
+    elif visual == "Negative / Deviant Cases":
+        render_negative_deviant_cases(frames)
 
     elif visual == "Theme × Study Heatmap":
         c1, c2 = st.columns(2)
