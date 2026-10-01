@@ -7,7 +7,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-APP_VERSION = "v0.14.4-prisma"
+APP_VERSION = "v0.14.5-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -48,7 +48,8 @@ st.markdown(
 .prisma-note {border-left:5px solid #4c83b6;background:#f5f9fd;border-radius:10px;padding:10px 13px;margin:.6rem 0;color:#38556d;}
 [data-testid="stMetric"] {border:1px solid #dce6ee;background:#fff;padding:10px 12px;border-radius:13px;}
 [data-testid="stMetricValue"] {color:#12385e;}
-div.stButton > button {border-radius:12px;min-height:72px;font-weight:800;white-space:pre-line;}
+div.stButton > button {border-radius:12px;min-height:78px;font-weight:800;white-space:pre-line;border:1px solid #b9cbd9;background:#fff;color:#12385e;}
+div.stButton > button:hover {border-color:#0f6b78;background:#f5fbfc;}
 </style>
 """,
     unsafe_allow_html=True,
@@ -129,13 +130,28 @@ def calculate_prisma(data: dict, file_bytes: bytes) -> dict:
     duplicates_removed = raw_total - screened - automation_removed - other_removed
     removed_before = duplicates_removed + automation_removed + other_removed
 
-    ft_available = eligible["Full Text Available"].astype(str).str.strip()
+    ft_raw = eligible["Full Text Available"]
+    ft_available = ft_raw.astype(str).str.strip()
     ft_decision = eligible["Full-Text Decision"].astype(str).str.strip()
+    ft_missing = ft_raw.isna() | ft_available.isin(["", "nan", "None"])
     not_retrieved = int(ft_available.eq("No").sum())
     assessed = int(ft_available.eq("Yes").sum())
-    outstanding = int(eligible["Full Text Available"].isna().sum())
+    outstanding = int(ft_missing.sum())
     included = int(ft_decision.eq("Include").sum())
     excluded = int(ft_decision.eq("Exclude").sum())
+
+    ta_decision = active["Title/Abstract Decision"].astype(str).str.strip()
+    row_groups = {
+        "screened": active.loc[active["Title/Abstract Decision"].notna()].copy(),
+        "ta_excluded": active.loc[ta_decision.eq("Exclude")].copy(),
+        "pre_retrieval": advancing.loc[temporal.str.startswith("Exclude", na=False)].copy(),
+        "eligible": eligible.copy(),
+        "not_retrieved": eligible.loc[ft_available.eq("No")].copy(),
+        "assessed": eligible.loc[ft_available.eq("Yes")].copy(),
+        "outstanding": eligible.loc[ft_missing].copy(),
+        "included": eligible.loc[ft_decision.eq("Include")].copy(),
+        "ft_excluded": eligible.loc[ft_decision.eq("Exclude")].copy(),
+    }
 
     reason_counts = Counter(
         _normalize_ft_reason(v)
@@ -211,80 +227,217 @@ def calculate_prisma(data: dict, file_bytes: bytes) -> dict:
         "source_breakdown": source_breakdown,
         "duplicate_detail": duplicate_detail,
         "stream_summary": stream_summary,
+        "row_groups": row_groups,
         "checks": checks,
         "status": "FINAL" if outstanding == 0 else "OPEN / INTERIM",
     }
 
 
-def _stage_button(label: str, value: int, key: str) -> None:
-    if st.button(f"{label}\n{value:,}", key=key, use_container_width=True):
+def _stage_button(label: str, value: int, key: str, note: str = "") -> None:
+    text = f"{label}\\n(n = {value:,})"
+    if note:
+        text += f"\\n{note}"
+    if st.button(text, key=f"prisma_box_{key}", use_container_width=True):
         st.session_state["prisma_focus"] = key
+        st.rerun()
+
+
+def _arrow() -> None:
+    st.markdown(
+        "<div style='text-align:center;font-size:1.55rem;color:#4c83b6;line-height:1.1'>↓</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _display_record_table(df: pd.DataFrame, key_prefix: str) -> None:
+    if df is None or df.empty:
+        st.info("No study records are available for this box.")
+        return
+
+    view = df.copy()
+    if "Search Stream" in view.columns:
+        streams = sorted([x for x in view["Search Stream"].dropna().astype(str).unique().tolist() if x])
+        if streams:
+            selected = st.multiselect(
+                "Filter by stream",
+                streams,
+                default=streams,
+                key=f"{key_prefix}_stream_filter",
+            )
+            if selected:
+                view = view[view["Search Stream"].astype(str).isin(selected)]
+
+    search_text = st.text_input(
+        "Search Study ID / title",
+        key=f"{key_prefix}_record_search",
+        placeholder="e.g., SR058 or maturity",
+    ).strip().lower()
+    if search_text:
+        sid = view["Study ID"].astype(str).str.lower() if "Study ID" in view.columns else pd.Series("", index=view.index)
+        title = view["Title"].astype(str).str.lower() if "Title" in view.columns else pd.Series("", index=view.index)
+        view = view[sid.str.contains(search_text, na=False) | title.str.contains(search_text, na=False)]
+
+    preferred = [
+        "Study ID",
+        "Title",
+        "Authors",
+        "Year",
+        "Search Stream",
+        "Identification Source",
+        "Title/Abstract Exclusion Reason",
+        "Temporal Eligibility Decision",
+        "Full Text Available",
+        "Full-Text Decision",
+        "Full-Text Exclusion Reason",
+        "Final Inclusion Status",
+    ]
+    cols = [c for c in preferred if c in view.columns]
+    st.caption(f"Showing {len(view):,} study record(s).")
+    st.dataframe(view[cols], use_container_width=True, hide_index=True, height=430)
 
 
 def render_flow(m: dict) -> None:
     st.markdown('<div class="stage-band">IDENTIFICATION</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        _stage_button("Databases / registers", m["formal_raw"], "identification")
-    with c2:
-        _stage_button("Historical seed corpus", m["seed_records"], "seed")
+    left, right = st.columns([1, 1])
+    with left:
+        st.caption("PRISMA 2020 identification route")
+        _stage_button("Records identified from databases / registers", m["formal_raw"], "identification")
+    with right:
+        st.caption("Review-specific transparency box")
+        _stage_button(
+            "Historical seed records — original identification route undocumented",
+            m["seed_records"],
+            "seed",
+            "Extension",
+        )
 
-    st.markdown("<div style='text-align:center;font-size:1.5rem;color:#4c83b6'>↓</div>", unsafe_allow_html=True)
-    _stage_button("Records identified — all routes", m["raw_total"], "raw_total")
-    st.markdown("<div style='text-align:center;font-size:1.5rem;color:#4c83b6'>↓</div>", unsafe_allow_html=True)
-    _stage_button("Removed before screening", m["removed_before"], "removed")
+    _arrow()
+    _stage_button("Total records identified in the review database", m["raw_total"], "raw_total")
+    _arrow()
+
+    main, side = st.columns([1.35, 1])
+    with main:
+        _stage_button("Records remaining for screening", m["screened"], "screened")
+    with side:
+        st.caption("Removed before screening")
+        _stage_button("Records removed before screening", m["removed_before"], "removed")
+        st.caption(
+            f"Duplicates {m['duplicates_removed']:,} · Automation {m['automation_removed']:,} · Other {m['other_removed']:,}"
+        )
 
     st.markdown('<div class="stage-band">SCREENING</div>', unsafe_allow_html=True)
-    _stage_button("Records screened", m["screened"], "screened")
-    a, b = st.columns(2)
-    with a:
-        _stage_button("Records excluded at title / abstract", m["ta_excluded"], "ta_excluded")
-    with b:
-        _stage_button("Pre-retrieval eligibility exclusions", m["pre_retrieval_excluded"], "pre_retrieval")
+    main, side = st.columns([1.35, 1])
+    with main:
+        _stage_button("Records screened", m["screened"], "screened")
+    with side:
+        _stage_button("Records excluded", m["ta_excluded"], "ta_excluded", "Title / abstract")
+    _arrow()
+
+    main, side = st.columns([1.35, 1])
+    with main:
+        _stage_button("Reports sought for retrieval", m["eligible"], "eligible")
+    with side:
+        st.caption("Review-specific eligibility gate")
+        _stage_button(
+            "Records excluded before retrieval",
+            m["pre_retrieval_excluded"],
+            "pre_retrieval",
+            "Temporal / foundational eligibility · Extension",
+        )
 
     st.markdown('<div class="stage-band">RETRIEVAL & ELIGIBILITY</div>', unsafe_allow_html=True)
-    _stage_button("Reports sought for retrieval", m["eligible"], "eligible")
-    a, b, c = st.columns(3)
-    with a:
+    main, side = st.columns([1.35, 1])
+    with main:
+        _stage_button("Reports sought for retrieval", m["eligible"], "eligible")
+    with side:
         _stage_button("Reports not retrieved", m["not_retrieved"], "not_retrieved")
-    with b:
-        _stage_button("Reports assessed for eligibility", m["assessed"], "assessed")
-    with c:
-        _stage_button("Outstanding retrieval / FT processing", m["outstanding"], "outstanding")
+    _arrow()
 
-    st.markdown('<div class="stage-band">CURRENT FULL-TEXT OUTCOME</div>', unsafe_allow_html=True)
-    a, b = st.columns(2)
-    with a:
-        _stage_button("Currently included after full-text assessment", m["included"], "included")
-    with b:
-        _stage_button("Full-text reports excluded", m["excluded"], "ft_excluded")
+    main, side = st.columns([1.35, 1])
+    with main:
+        _stage_button("Reports assessed for eligibility", m["assessed"], "assessed")
+    with side:
+        _stage_button("Reports excluded after full-text assessment", m["excluded"], "ft_excluded")
+
+    if m["outstanding"] > 0:
+        st.markdown(
+            f'<div class="audit-warn"><b>Open workflow status — not a final PRISMA box:</b> '
+            f'{m["outstanding"]:,} reports remain without a documented retrieval/full-text outcome. '
+            'The diagram is therefore an interim research-workflow snapshot.</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            f"Open outstanding records (n = {m['outstanding']:,})",
+            key="prisma_box_outstanding",
+            use_container_width=True,
+        ):
+            st.session_state["prisma_focus"] = "outstanding"
+            st.rerun()
+
+    st.markdown('<div class="stage-band">INCLUDED — CURRENT INTERIM STATUS</div>', unsafe_allow_html=True)
+    _stage_button(
+        "Study records currently included after full-text assessment",
+        m["included"],
+        "included",
+        "Interim while retrieval remains open" if m["outstanding"] else "Current completed flow",
+    )
 
 
 def render_focus(m: dict) -> None:
     focus = st.session_state.get("prisma_focus", "removed")
-    st.markdown("### Drill-down / Audit detail")
+    titles = {
+        "identification": "Records identified from databases / registers",
+        "seed": "Historical seed records",
+        "raw_total": "All identification routes",
+        "removed": "Records removed before screening",
+        "screened": "Records screened",
+        "ta_excluded": "Title / abstract exclusions",
+        "pre_retrieval": "Pre-retrieval eligibility exclusions",
+        "eligible": "Reports sought for retrieval",
+        "not_retrieved": "Reports not retrieved",
+        "assessed": "Reports assessed for eligibility",
+        "outstanding": "Outstanding retrieval / full-text processing",
+        "included": "Currently included study records",
+        "ft_excluded": "Full-text exclusions",
+    }
+    st.markdown(f"### Drill-down · {titles.get(focus, focus)}")
+
     if focus in {"identification", "raw_total"}:
         df = pd.DataFrame(m["source_breakdown"], columns=["Database / Register", "Raw records identified"])
         if m["seed_records"]:
-            df = pd.concat([
-                df,
-                pd.DataFrame([{
-                    "Database / Register": "Historical seed corpus — original source undocumented",
-                    "Raw records identified": m["seed_records"],
-                }]),
-            ], ignore_index=True)
+            df = pd.concat(
+                [
+                    df,
+                    pd.DataFrame(
+                        [{
+                            "Database / Register": "Historical seed corpus — original source undocumented",
+                            "Raw records identified": m["seed_records"],
+                        }]
+                    ),
+                ],
+                ignore_index=True,
+            )
         st.dataframe(df, use_container_width=True, hide_index=True)
-    elif focus == "seed":
-        st.info(
-            f"Historical seed corpus: {m['seed_records']:,} registered records. Its original identification route is intentionally not retroactively attributed to a database."
+        st.caption(
+            "Raw identification totals are search-run counts. Duplicate raw hits do not all have a canonical Study ID, so study-level drill-down begins after canonicalisation."
         )
-    elif focus == "removed":
+        return
+
+    if focus == "seed":
+        st.info(
+            f"Historical seed corpus: {m['seed_records']:,} records. The original discovery route is deliberately left undocumented rather than retrospectively assigned to a database."
+        )
+        return
+
+    if focus == "removed":
         st.dataframe(
-            pd.DataFrame([
-                {"Removal category": "Duplicate records", "n": m["duplicates_removed"]},
-                {"Removal category": "Marked ineligible by automation", "n": m["automation_removed"]},
-                {"Removal category": "Other reasons before screening", "n": m["other_removed"]},
-            ]),
+            pd.DataFrame(
+                [
+                    {"Removal category": "Duplicate records", "n": m["duplicates_removed"]},
+                    {"Removal category": "Marked ineligible by automation", "n": m["automation_removed"]},
+                    {"Removal category": "Other reasons before screening", "n": m["other_removed"]},
+                ]
+            ),
             use_container_width=True,
             hide_index=True,
         )
@@ -294,21 +447,64 @@ def render_focus(m: dict) -> None:
             use_container_width=True,
             hide_index=True,
         )
-    elif focus == "ft_excluded":
+        st.caption(
+            "The duplicate total reconciles across re-identified seed hits, duplicate export versions, prior formal-search duplicates, and globally removed duplicate Study IDs."
+        )
+        return
+
+    rows = m.get("row_groups", {}).get(focus, pd.DataFrame())
+
+    if focus == "ta_excluded" and not rows.empty and "Title/Abstract Exclusion Reason" in rows.columns:
+        reasons = (
+            rows["Title/Abstract Exclusion Reason"]
+            .fillna("Unspecified")
+            .astype(str)
+            .value_counts()
+            .rename_axis("Title / abstract exclusion reason")
+            .reset_index(name="n")
+        )
+        st.dataframe(reasons, use_container_width=True, hide_index=True)
+
+    if focus == "pre_retrieval":
+        st.info(
+            "This is a review-specific workflow extension, not a mandatory standalone PRISMA 2020 box. It records the temporal/foundational eligibility gate applied before retrieval."
+        )
+        if not rows.empty and "Temporal Eligibility Decision" in rows.columns:
+            tmp = (
+                rows["Temporal Eligibility Decision"]
+                .fillna("Unspecified")
+                .astype(str)
+                .value_counts()
+                .rename_axis("Temporal eligibility decision")
+                .reset_index(name="n")
+            )
+            st.dataframe(tmp, use_container_width=True, hide_index=True)
+
+    if focus == "ft_excluded":
         st.dataframe(
-            pd.DataFrame([{"Full-text exclusion reason": k, "n": v} for k, v in m["reason_counts"].most_common()]),
+            pd.DataFrame(
+                [{"Grouped full-text exclusion reason": k, "n": v} for k, v in m["reason_counts"].most_common()]
+            ),
             use_container_width=True,
             hide_index=True,
         )
-    elif focus in {"eligible", "not_retrieved", "assessed", "outstanding", "included"}:
-        st.dataframe(pd.DataFrame(m["stream_summary"]), use_container_width=True, hide_index=True)
-    elif focus == "pre_retrieval":
-        st.info(
-            "This box is a transparent study-workflow extension: temporal/foundational eligibility was resolved before full-text retrieval. It is not a separate mandatory PRISMA 2020 box."
-        )
-    else:
-        st.info("This stage is recorded in the Screening MASTER and can be expanded to study-level IDs in a later drill-down layer.")
+        if not rows.empty:
+            rows = rows.copy()
+            rows["Grouped FT exclusion reason"] = rows["Full-Text Exclusion Reason"].map(_normalize_ft_reason)
+            categories = sorted(rows["Grouped FT exclusion reason"].dropna().unique().tolist())
+            selected_reason = st.selectbox(
+                "Inspect a grouped exclusion reason",
+                ["All"] + categories,
+                key="ft_reason_drill_filter",
+            )
+            if selected_reason != "All":
+                rows = rows[rows["Grouped FT exclusion reason"].eq(selected_reason)]
 
+    if focus in {"eligible", "not_retrieved", "assessed", "outstanding", "included", "ft_excluded"}:
+        st.markdown("**By review stream**")
+        st.dataframe(pd.DataFrame(m["stream_summary"]), use_container_width=True, hide_index=True)
+
+    _display_record_table(rows, f"focus_{focus}")
 
 st.markdown(
     '<section class="prisma-hero">'
