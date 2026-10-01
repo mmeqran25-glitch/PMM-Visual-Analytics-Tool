@@ -72,7 +72,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.15.0"
+APP_VERSION = "v0.15.1"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
