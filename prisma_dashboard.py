@@ -7,7 +7,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-APP_VERSION = "v0.14.7-prisma"
+APP_VERSION = "v0.14.8-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
