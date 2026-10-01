@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.13.3
+# PMM Visual Analytics & Presentation Tool v0.13.4
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -226,7 +226,7 @@ Adds a dedicated researcher-only **Qualitative Visuals** workspace for thesis-re
 
 ## v0.13.3 Exact Faculty of Engineering logo
 
-- Embeds the exact researcher-supplied Faculty of Engineering logo as a local WebP asset.
+- Embeds the exact researcher-supplied Faculty of Engineering logo as a local JPEG asset.
 - Removes the previous low-resolution logo dependency and uses the cropped source artwork at an appropriate web resolution.
 - Runtime branding explicitly supports WebP.
 - No analytical, BI, traceability or MASTER logic changed.
