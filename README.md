@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.13.1
+# PMM Visual Analytics & Presentation Tool v0.13.2
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -216,6 +216,13 @@ Adds a dedicated researcher-only **Qualitative Visuals** workspace for thesis-re
 - Word frequency preprocessing is presentation-only and does not alter the MASTER.
 - Provides high-resolution PNG and CSV frequency-table downloads.
 - Includes an explicit methodological safeguard: Word Cloud is descriptive/exploratory and word size must not be interpreted as theoretical importance or evidence strength.
+
+## v0.13.2 Faculty of Engineering logo clarity
+
+- Replaces the previous low-resolution Faculty of Engineering asset with a cropped, sharpened version based directly on the researcher-supplied logo image.
+- The crop removes large white margins and preserves the shield mark, making the logo substantially clearer at the displayed header size.
+- Enlarges the engineering logo tile while keeping the responsive layout.
+- No analytical, BI, traceability or MASTER logic changed.
 
 ## Workbook compatibility
 
