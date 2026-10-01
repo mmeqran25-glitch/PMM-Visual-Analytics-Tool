@@ -5,6 +5,7 @@ from io import BytesIO
 import html
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from researcher_cache import (
@@ -13,7 +14,7 @@ from researcher_cache import (
     clear_cached_prisma,
 )
 
-APP_VERSION = "v0.14.9-prisma"
+APP_VERSION = "v0.15.0-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -626,6 +627,220 @@ def render_analytical_summary(m: dict) -> None:
 
 
 
+
+def _valid_year_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with a clean numeric publication year for descriptive charts."""
+    if df is None or df.empty or "Year" not in df.columns:
+        return pd.DataFrame()
+    out = df.copy()
+    out["_Publication_Year"] = pd.to_numeric(out["Year"], errors="coerce")
+    out = out[out["_Publication_Year"].notna()].copy()
+    out["_Publication_Year"] = out["_Publication_Year"].astype(int)
+    # Conservative plausibility guard; it does not alter the source workbook.
+    out = out[out["_Publication_Year"].between(1900, 2100)].copy()
+    return out
+
+
+def render_study_characteristics(metrics: dict) -> None:
+    st.subheader("Study Characteristics & Temporal Profile")
+    st.caption(
+        "Supplementary descriptive profile aligned with PRISMA 2020 Item 17. "
+        "These charts describe the corpus; they are not part of the official PRISMA flow boxes."
+    )
+
+    populations = {
+        "Currently included (interim)": "included",
+        "Full-text assessed": "assessed",
+        "Retrieval eligible": "eligible",
+        "Screened records": "screened",
+    }
+    population_label = st.selectbox(
+        "Population shown in the descriptive charts",
+        list(populations.keys()),
+        index=0,
+        key="prisma_profile_population",
+        help=(
+            "Use Currently included for the study-characteristics view. "
+            "Other populations are provided for audit and process exploration."
+        ),
+    )
+    group_key = populations[population_label]
+    source_df = metrics.get("row_groups", {}).get(group_key, pd.DataFrame()).copy()
+
+    if source_df.empty:
+        st.info("No records are available for the selected population.")
+        return
+
+    if population_label == "Currently included (interim)" and metrics.get("outstanding", 0) > 0:
+        st.warning(
+            f"The included-study profile is interim because {metrics['outstanding']:,} reports remain outstanding. "
+            "The temporal and contextual distributions may change when retrieval/full-text processing is completed."
+        )
+
+    year_df = _valid_year_rows(source_df)
+
+    st.markdown("#### Publication timeline")
+    if year_df.empty:
+        st.info("No usable publication-year values are available for this population.")
+    else:
+        annual = (
+            year_df.groupby("_Publication_Year", as_index=False)
+            .size()
+            .rename(columns={"_Publication_Year": "Year", "size": "Studies"})
+            .sort_values("Year")
+        )
+        fig = px.bar(
+            annual,
+            x="Year",
+            y="Studies",
+            title=f"Number of records by publication year — {population_label}",
+            labels={"Studies": "Number of records"},
+        )
+        fig.update_layout(
+            xaxis=dict(dtick=1),
+            yaxis_title="Number of records",
+            xaxis_title="Publication year",
+            margin=dict(l=20, r=20, t=55, b=20),
+        )
+        st.plotly_chart(fig, use_container_width=True, key=f"prisma_year_count_{group_key}")
+
+        if "Search Stream" in year_df.columns:
+            stream_df = year_df[year_df["Search Stream"].notna()].copy()
+            stream_df["Search Stream"] = stream_df["Search Stream"].astype(str).str.strip()
+            stream_df = stream_df[stream_df["Search Stream"].ne("")]
+            if not stream_df.empty:
+                annual_stream = (
+                    stream_df.groupby(["_Publication_Year", "Search Stream"], as_index=False)
+                    .size()
+                    .rename(columns={"_Publication_Year": "Year", "size": "Studies"})
+                    .sort_values(["Year", "Search Stream"])
+                )
+                fig2 = px.bar(
+                    annual_stream,
+                    x="Year",
+                    y="Studies",
+                    color="Search Stream",
+                    barmode="stack",
+                    title=f"Evidence streams over time — {population_label}",
+                    labels={"Studies": "Number of records"},
+                )
+                fig2.update_layout(
+                    xaxis=dict(dtick=1),
+                    yaxis_title="Number of records",
+                    xaxis_title="Publication year",
+                    legend_title_text="Evidence stream",
+                    margin=dict(l=20, r=20, t=55, b=20),
+                )
+                st.plotly_chart(fig2, use_container_width=True, key=f"prisma_year_stream_{group_key}")
+
+    st.markdown("#### Corpus context available in the current workbook")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        if "Search Stream" in source_df.columns:
+            stream_counts = (
+                source_df["Search Stream"]
+                .fillna("Unspecified")
+                .astype(str)
+                .str.strip()
+                .replace("", "Unspecified")
+                .value_counts()
+                .rename_axis("Search Stream")
+                .reset_index(name="Studies")
+            )
+            if not stream_counts.empty:
+                fig3 = px.bar(
+                    stream_counts,
+                    x="Search Stream",
+                    y="Studies",
+                    title="Evidence-stream composition",
+                    labels={"Studies": "Number of records"},
+                )
+                fig3.update_layout(
+                    xaxis_title="Evidence stream",
+                    yaxis_title="Number of records",
+                    margin=dict(l=20, r=20, t=55, b=20),
+                )
+                st.plotly_chart(fig3, use_container_width=True, key=f"prisma_stream_context_{group_key}")
+
+    with c2:
+        context_field = st.selectbox(
+            "Search-context field",
+            ["Identification Source", "Identification Method", "Identification Route"],
+            key=f"prisma_context_field_{group_key}",
+        )
+        if context_field in source_df.columns:
+            context_counts = (
+                source_df[context_field]
+                .fillna("Unspecified")
+                .astype(str)
+                .str.strip()
+                .replace("", "Unspecified")
+                .value_counts()
+                .rename_axis(context_field)
+                .reset_index(name="Studies")
+            )
+            if not context_counts.empty:
+                # Keep every category, but make long category charts readable.
+                context_counts = context_counts.sort_values("Studies", ascending=True)
+                fig4 = px.bar(
+                    context_counts,
+                    x="Studies",
+                    y=context_field,
+                    orientation="h",
+                    title=f"{context_field} profile",
+                    labels={"Studies": "Number of records"},
+                )
+                fig4.update_layout(
+                    xaxis_title="Number of records",
+                    yaxis_title=context_field,
+                    margin=dict(l=20, r=20, t=55, b=20),
+                    height=max(360, 34 * len(context_counts) + 120),
+                )
+                st.plotly_chart(fig4, use_container_width=True, key=f"prisma_context_{group_key}_{context_field}")
+
+    if group_key == "assessed" and "Full-Text Decision" in source_df.columns and not year_df.empty:
+        st.markdown("#### Full-text outcome over publication time")
+        outcome_df = year_df.copy()
+        outcome_df["Full-Text Decision"] = (
+            outcome_df["Full-Text Decision"].fillna("Unspecified").astype(str).str.strip().replace("", "Unspecified")
+        )
+        outcome_counts = (
+            outcome_df.groupby(["_Publication_Year", "Full-Text Decision"], as_index=False)
+            .size()
+            .rename(columns={"_Publication_Year": "Year", "size": "Studies"})
+            .sort_values(["Year", "Full-Text Decision"])
+        )
+        fig5 = px.bar(
+            outcome_counts,
+            x="Year",
+            y="Studies",
+            color="Full-Text Decision",
+            barmode="stack",
+            title="Full-text decisions by publication year",
+            labels={"Studies": "Number of records"},
+        )
+        fig5.update_layout(
+            xaxis=dict(dtick=1),
+            xaxis_title="Publication year",
+            yaxis_title="Number of records",
+            legend_title_text="Full-text decision",
+            margin=dict(l=20, r=20, t=55, b=20),
+        )
+        st.plotly_chart(fig5, use_container_width=True, key="prisma_ft_outcome_year")
+
+    missing_context = [
+        field for field in ["Country", "Sector", "Methodology", "Study Design"]
+        if field not in source_df.columns
+    ]
+    if missing_context:
+        st.info(
+            "The current Screening MASTER does not contain structured Country/Sector/Methodology fields, "
+            "so the platform does not infer them from titles or notes. If these fields are added later, "
+            "they can be visualised here without changing the PRISMA flow."
+        )
+
+
 def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
     st.markdown(PRISMA_CSS, unsafe_allow_html=True)
     st.markdown(
@@ -760,6 +975,9 @@ def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
     
     st.divider()
     render_analytical_summary(metrics)
+
+    st.divider()
+    render_study_characteristics(metrics)
     
     with st.expander("Methodological note for thesis / supervisor"):
         st.markdown(
