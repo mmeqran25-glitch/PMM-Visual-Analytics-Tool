@@ -14,7 +14,7 @@ from researcher_cache import (
     clear_cached_prisma,
 )
 
-APP_VERSION = "v0.15.0-prisma"
+APP_VERSION = "v0.15.1-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -649,10 +649,10 @@ def render_study_characteristics(metrics: dict) -> None:
     )
 
     populations = {
-        "Currently included (interim)": "included",
-        "Full-text assessed": "assessed",
+        "Initial screened corpus — after duplicate removal": "screened",
         "Retrieval eligible": "eligible",
-        "Screened records": "screened",
+        "Full-text assessed": "assessed",
+        "Currently included (interim)": "included",
     }
     population_label = st.selectbox(
         "Population shown in the descriptive charts",
@@ -660,8 +660,8 @@ def render_study_characteristics(metrics: dict) -> None:
         index=0,
         key="prisma_profile_population",
         help=(
-            "Use Currently included for the study-characteristics view. "
-            "Other populations are provided for audit and process exploration."
+            "The default view shows the initial unique corpus that entered title/abstract screening "
+            "after duplicate and pre-screen removals. Other populations are available for later-stage comparison."
         ),
     )
     group_key = populations[population_label]
@@ -678,6 +678,23 @@ def render_study_characteristics(metrics: dict) -> None:
         )
 
     year_df = _valid_year_rows(source_df)
+    valid_year_n = len(year_df)
+    missing_year_n = max(len(source_df) - valid_year_n, 0)
+
+    st.markdown("#### Initial literature profile")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Raw records identified", f"{metrics['raw_total']:,}")
+    k2.metric("Removed before screening", f"{metrics['removed_before']:,}")
+    k3.metric("Initial screened corpus", f"{metrics['screened']:,}")
+    k4.metric("Records with publication year", f"{valid_year_n:,}", f"{missing_year_n:,} missing/unusable")
+
+    if group_key == "screened":
+        st.info(
+            f"This is the baseline literature landscape used to describe the initial search: "
+            f"{metrics['raw_total']:,} raw records were identified, {metrics['removed_before']:,} were removed before screening, "
+            f"and {metrics['screened']:,} unique records entered title/abstract screening. "
+            "The publication-year chart below uses this screened corpus, not the final included subset."
+        )
 
     st.markdown("#### Publication timeline")
     if year_df.empty:
@@ -693,7 +710,11 @@ def render_study_characteristics(metrics: dict) -> None:
             annual,
             x="Year",
             y="Studies",
-            title=f"Number of records by publication year — {population_label}",
+            title=(
+                "Initial screened corpus by publication year"
+                if group_key == "screened"
+                else f"Number of records by publication year — {population_label}"
+            ),
             labels={"Studies": "Number of records"},
         )
         fig.update_layout(
@@ -703,6 +724,11 @@ def render_study_characteristics(metrics: dict) -> None:
             margin=dict(l=20, r=20, t=55, b=20),
         )
         st.plotly_chart(fig, use_container_width=True, key=f"prisma_year_count_{group_key}")
+        if missing_year_n > 0:
+            st.caption(
+                f"Year-based chart includes {valid_year_n:,} of {len(source_df):,} records; "
+                f"{missing_year_n:,} record(s) have missing or unusable publication-year values."
+            )
 
         if "Search Stream" in year_df.columns:
             stream_df = year_df[year_df["Search Stream"].notna()].copy()
