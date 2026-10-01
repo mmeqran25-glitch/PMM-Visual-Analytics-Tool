@@ -16,6 +16,8 @@ from wordcloud import STOPWORDS, WordCloud
 
 from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids)
 
+QUAL_VIS_VERSION = "v0.14.1"
+
 PLOT_CONFIG = {
     "displaylogo": False,
     "responsive": True,
