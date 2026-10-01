@@ -7,7 +7,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-APP_VERSION = "v0.14.5-prisma"
+APP_VERSION = "v0.14.6-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -306,7 +306,12 @@ def render_flow(m: dict) -> None:
 
     main, side = st.columns([1.35, 1])
     with main:
-        _stage_button("Records remaining for screening", m["screened"], "screened")
+        _stage_button(
+            "Records remaining for screening",
+            m["screened"],
+            "screened",
+            element_key="screened_remaining",
+        )
     with side:
         st.caption("Removed before screening")
         _stage_button("Records removed before screening", m["removed_before"], "removed")
@@ -324,7 +329,12 @@ def render_flow(m: dict) -> None:
 
     main, side = st.columns([1.35, 1])
     with main:
-        _stage_button("Reports sought for retrieval", m["eligible"], "eligible")
+        _stage_button(
+            "Reports sought for retrieval",
+            m["eligible"],
+            "eligible",
+            element_key="eligible_after_screening",
+        )
     with side:
         st.caption("Review-specific eligibility gate")
         _stage_button(
