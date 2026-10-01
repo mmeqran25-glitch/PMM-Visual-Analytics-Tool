@@ -65,7 +65,7 @@ from bi_dashboard import render_research_bi_dashboard
 from qualitative_visuals import render_qualitative_visuals
 
 
-APP_VERSION = "v0.13.0"
+APP_VERSION = "v0.13.1"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
