@@ -72,7 +72,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.14.8"
+APP_VERSION = "v0.14.9"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -1465,6 +1465,9 @@ def main():
         render_academic_footer()
         return
 
+    private_key = _query_param("key", "")
+    persistence_enabled = token_matches(private_key)
+
     workspace_module = st.radio(
         "Research workspace module",
         ["PMM Visual Analytics", "PRISMA 2020"],
@@ -1475,12 +1478,10 @@ def main():
     st.divider()
 
     if workspace_module == "PRISMA 2020":
-        render_prisma_dashboard()
+        render_prisma_dashboard(persistence_enabled=persistence_enabled)
         render_academic_footer()
         return
 
-    private_key = _query_param("key", "")
-    persistence_enabled = token_matches(private_key)
     uploader_version = int(st.session_state.get("master_uploader_version", 0))
     cached_entry = load_cached_master() if persistence_enabled else None
 
