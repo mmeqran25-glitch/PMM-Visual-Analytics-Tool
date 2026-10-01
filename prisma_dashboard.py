@@ -7,7 +7,13 @@ import html
 import pandas as pd
 import streamlit as st
 
-APP_VERSION = "v0.14.8-prisma"
+from researcher_cache import (
+    save_cached_prisma,
+    load_cached_prisma,
+    clear_cached_prisma,
+)
+
+APP_VERSION = "v0.14.9-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -620,7 +626,7 @@ def render_analytical_summary(m: dict) -> None:
 
 
 
-def render_prisma_dashboard() -> None:
+def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
     st.markdown(PRISMA_CSS, unsafe_allow_html=True)
     st.markdown(
         '<section class="prisma-hero">'
@@ -632,22 +638,80 @@ def render_prisma_dashboard() -> None:
     )
     
     st.caption(
-        "Upload the current Screening / PRISMA workbook. This page does not modify the workbook and does not alter the PMM dimension-derivation MASTER."
+        "Upload the current Screening / PRISMA workbook. This module does not modify the workbook "
+        "and does not alter the PMM dimension-derivation MASTER."
     )
-    
-    uploaded = st.file_uploader("Upload Screening / PRISMA workbook (.xlsx)", type=["xlsx"], key="prisma_screening_upload")
-    
-    if uploaded is None:
-        st.info("Upload the current screening workbook to generate the live PRISMA 2020 flow and audit checks.")
+
+    uploader_version = int(st.session_state.get("prisma_uploader_version", 0))
+    cached_entry = load_cached_prisma() if persistence_enabled else None
+
+    if persistence_enabled:
+        st.success(
+            "Private refresh-safe PRISMA cache is enabled. The latest validated screening workbook "
+            "can be reused after browser refresh or reopening the app."
+        )
+        st.caption(
+            "The cache is private to the researcher access key and is separate from the PMM MASTER cache. "
+            "A Streamlit restart/redeploy may still clear temporary server storage."
+        )
+
+    uploaded = st.file_uploader(
+        "Upload Screening / PRISMA workbook (.xlsx)",
+        type=["xlsx"],
+        key=f"prisma_screening_upload_{uploader_version}",
+        help="Upload a newer valid workbook at any time; it will replace the cached PRISMA workbook.",
+    )
+
+    if persistence_enabled and cached_entry is not None:
+        cached_name, _, cached_meta = cached_entry
+        size_mb = float(cached_meta.get("size_bytes", 0)) / (1024 * 1024)
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.info(f"Cached PRISMA workbook: {cached_name} · {size_mb:.1f} MB")
+        with c2:
+            if st.button(
+                "Forget cached PRISMA workbook",
+                key="forget_cached_prisma",
+                use_container_width=True,
+            ):
+                clear_cached_prisma()
+                st.session_state["prisma_uploader_version"] = uploader_version + 1
+                load_prisma_workbook.clear()
+                st.rerun()
+
+    workbook_name = None
+    file_bytes = None
+    uploaded_now = uploaded is not None
+
+    if uploaded_now:
+        workbook_name = uploaded.name
+        file_bytes = uploaded.getvalue()
+    elif persistence_enabled and cached_entry is not None:
+        workbook_name, file_bytes, _ = cached_entry
+
+    if file_bytes is None:
+        st.info(
+            "Upload the current screening workbook once. After it passes validation, "
+            "the app can reuse it automatically on refresh/reopen when private cache is enabled."
+        )
         return
-    
-    file_bytes = uploaded.getvalue()
+
     try:
         data = load_prisma_workbook(file_bytes)
         metrics = calculate_prisma(data, file_bytes)
     except Exception as exc:
         st.error(f"Could not build PRISMA reconciliation: {exc}")
+        if uploaded_now and persistence_enabled and cached_entry is not None:
+            st.info("The previously cached validated PRISMA workbook was not replaced.")
         return
+
+    if uploaded_now and persistence_enabled:
+        meta = save_cached_prisma(workbook_name or "PRISMA_Screening.xlsx", file_bytes)
+        cached_entry = (workbook_name or "PRISMA_Screening.xlsx", file_bytes, meta)
+        st.success(f"Validated and cached: {workbook_name}")
+
+    if workbook_name:
+        st.caption(f"Loaded PRISMA workbook: {workbook_name}")
     
     ok = all(metrics["checks"].values())
     if ok:
