@@ -35,9 +35,17 @@ def _cache_dir(cache_root: Path | str | None = None) -> Path:
     return path
 
 
-def _paths(cache_root: Path | str | None = None) -> Tuple[Path, Path]:
+def _named_paths(
+    stem: str,
+    cache_root: Path | str | None = None,
+) -> Tuple[Path, Path]:
     d = _cache_dir(cache_root)
-    return d / "current_master.xlsx", d / "current_master.json"
+    safe_stem = "".join(ch for ch in str(stem) if ch.isalnum() or ch in {"_", "-"}) or "workbook"
+    return d / f"{safe_stem}.xlsx", d / f"{safe_stem}.json"
+
+
+def _paths(cache_root: Path | str | None = None) -> Tuple[Path, Path]:
+    return _named_paths("current_master", cache_root)
 
 
 def save_cached_master(
@@ -110,3 +118,99 @@ def clear_cached_master(cache_root: Path | str | None = None) -> None:
             path.unlink()
         except FileNotFoundError:
             pass
+
+
+
+def _save_named_workbook(
+    stem: str,
+    filename: str,
+    data: bytes,
+    cache_root: Path | str | None = None,
+) -> dict:
+    workbook_path, meta_path = _named_paths(stem, cache_root)
+    safe_name = Path(str(filename or f"{stem}.xlsx")).name
+    payload = bytes(data)
+    digest = hashlib.sha256(payload).hexdigest()
+
+    tmp_workbook = workbook_path.with_suffix(".xlsx.tmp")
+    tmp_meta = meta_path.with_suffix(".json.tmp")
+
+    tmp_workbook.write_bytes(payload)
+    tmp_meta.write_text(
+        json.dumps(
+            {
+                "filename": safe_name,
+                "sha256": digest,
+                "size_bytes": len(payload),
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    tmp_workbook.replace(workbook_path)
+    tmp_meta.replace(meta_path)
+
+    for path in (workbook_path, meta_path):
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+    return {
+        "filename": safe_name,
+        "sha256": digest,
+        "size_bytes": len(payload),
+    }
+
+
+def _load_named_workbook(
+    stem: str,
+    cache_root: Path | str | None = None,
+) -> Optional[Tuple[str, bytes, dict]]:
+    workbook_path, meta_path = _named_paths(stem, cache_root)
+    if not workbook_path.exists() or not meta_path.exists():
+        return None
+
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        data = workbook_path.read_bytes()
+    except Exception:
+        return None
+
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != str(meta.get("sha256", "")):
+        return None
+
+    filename = Path(str(meta.get("filename") or f"{stem}.xlsx")).name
+    return filename, data, meta
+
+
+def _clear_named_workbook(
+    stem: str,
+    cache_root: Path | str | None = None,
+) -> None:
+    workbook_path, meta_path = _named_paths(stem, cache_root)
+    for path in (workbook_path, meta_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def save_cached_prisma(
+    filename: str,
+    data: bytes,
+    cache_root: Path | str | None = None,
+) -> dict:
+    return _save_named_workbook("current_prisma_screening", filename, data, cache_root)
+
+
+def load_cached_prisma(
+    cache_root: Path | str | None = None,
+) -> Optional[Tuple[str, bytes, dict]]:
+    return _load_named_workbook("current_prisma_screening", cache_root)
+
+
+def clear_cached_prisma(cache_root: Path | str | None = None) -> None:
+    _clear_named_workbook("current_prisma_screening", cache_root)
