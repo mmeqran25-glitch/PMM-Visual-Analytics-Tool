@@ -61,6 +61,97 @@ def _dimension_lookup(frames: Dict[str, pd.DataFrame]) -> Dict[str, dict]:
     }
 
 
+def build_all_dimensions_sankey(frames: Dict[str, pd.DataFrame]) -> go.Figure:
+    """Overview flow for every active Candidate Dimension and its current Themes."""
+    dims = _dimension_lookup(frames)
+    themes = _theme_lookup(frames)
+    dmap = dimension_theme_map(frames)
+    if not dims or dmap.empty:
+        return go.Figure()
+
+    labels, ids, kinds = [], [], []
+    idx = {}
+
+    def add(node_id, label, kind):
+        key = f"{kind}:{node_id}"
+        if key in idx:
+            return idx[key]
+        idx[key] = len(labels)
+        labels.append(label)
+        ids.append(node_id)
+        kinds.append(kind)
+        return idx[key]
+
+    src, dst, val, htxt = [], [], [], []
+
+    for did, drow in dims.items():
+        tids = (
+            dmap.loc[
+                dmap["Dimension_ID"].astype(str).str.strip().eq(did),
+                "Theme_ID",
+            ]
+            .astype(str).str.strip()
+            .drop_duplicates()
+            .tolist()
+        )
+        if not tids:
+            continue
+        d_idx = add(
+            did,
+            f"{did}<br>{_short(drow.get('Candidate_Dimension_Name'), 54)}",
+            "Dimension",
+        )
+        for tid in tids:
+            trow = themes.get(tid)
+            if not trow:
+                continue
+            t_idx = add(
+                tid,
+                f"{tid}<br>{_short(trow.get('Working_Theme_Label'), 50)}",
+                "Theme",
+            )
+            weight = 1
+            for cid in split_ids(trow.get("Included_Cluster_IDs"), "PCL"):
+                members = cluster_members(frames, cid)
+                if not members.empty and "Code_ID" in members.columns:
+                    weight += int(members["Code_ID"].nunique())
+            src.append(d_idx)
+            dst.append(t_idx)
+            val.append(max(1, weight))
+            htxt.append(f"{did} → {tid}<br>{max(1, weight)} mapped FOCs")
+
+    if not src:
+        return go.Figure()
+
+    fig = go.Figure(
+        go.Sankey(
+            arrangement="snap",
+            node=dict(
+                pad=12,
+                thickness=16,
+                line=dict(width=.6),
+                label=labels,
+                customdata=list(zip(ids, kinds)),
+                hovertemplate="%{customdata[1]} %{customdata[0]}<br>%{label}<extra></extra>",
+            ),
+            link=dict(
+                source=src,
+                target=dst,
+                value=val,
+                customdata=htxt,
+                hovertemplate="%{customdata}<extra></extra>",
+            ),
+        )
+    )
+    fig.update_layout(
+        title="PMM analytical overview: All Candidate Dimensions → Themes",
+        height=max(760, min(1250, 35 * len(labels) + 220)),
+        margin=dict(l=10, r=10, t=70, b=20),
+        font=dict(size=11),
+    )
+    return fig
+
+
 def build_dimension_sankey(frames: Dict[str, pd.DataFrame], dimension_id: str) -> go.Figure:
     dims = _dimension_lookup(frames)
     themes = _theme_lookup(frames)
@@ -373,22 +464,48 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
         if dims.empty:
             st.info("No current Candidate Dimensions are available.")
             return
-        labels = dict(zip(dims["Dimension_ID"].astype(str), dims["Candidate_Dimension_Name"].astype(str)))
-        did = st.selectbox(
-            "Candidate Dimension", dims["Dimension_ID"].astype(str).tolist(),
-            format_func=lambda x: f"{x} — {labels.get(x, '')}",
-            key="qual_sankey_dimension"
+        sankey_mode = st.radio(
+            "Sankey scope",
+            ["All Dimensions Overview", "One Dimension Deep Dive"],
+            horizontal=True,
+            key="qual_sankey_scope",
         )
-        fig = build_dimension_sankey(frames, did)
-        st.plotly_chart(
-            fig, use_container_width=True,
-            config={**PLOT_CONFIG, "toImageButtonOptions": {**PLOT_CONFIG["toImageButtonOptions"], "filename": f"PMM_Sankey_{did}"}}
-        )
-        st.caption(
-            "Suggested thesis caption: Analytical derivation flow from the selected Candidate Dimension "
-            "to its supporting Themes and PCL/Clusters. Link widths represent currently mapped First-Order Codes."
-        )
-        st.info("Interpret this as an analytical derivation structure, not as a causal model.")
+
+        if sankey_mode == "All Dimensions Overview":
+            fig = build_all_dimensions_sankey(frames)
+            st.plotly_chart(
+                fig, use_container_width=True,
+                config={
+                    **PLOT_CONFIG,
+                    "toImageButtonOptions": {
+                        **PLOT_CONFIG["toImageButtonOptions"],
+                        "filename": "PMM_Sankey_All_Dimensions_Overview",
+                    },
+                },
+            )
+            st.caption(
+                "Suggested thesis caption: Overview of the current PMM derivation structure across all active Candidate Dimensions and their Themes."
+            )
+            st.info(
+                "This overview shows all current Dimensions and Themes. Use One Dimension Deep Dive to inspect the downstream PCL/Cluster structure."
+            )
+        else:
+            labels = dict(zip(dims["Dimension_ID"].astype(str), dims["Candidate_Dimension_Name"].astype(str)))
+            did = st.selectbox(
+                "Candidate Dimension", dims["Dimension_ID"].astype(str).tolist(),
+                format_func=lambda x: f"{x} — {labels.get(x, '')}",
+                key="qual_sankey_dimension"
+            )
+            fig = build_dimension_sankey(frames, did)
+            st.plotly_chart(
+                fig, use_container_width=True,
+                config={**PLOT_CONFIG, "toImageButtonOptions": {**PLOT_CONFIG["toImageButtonOptions"], "filename": f"PMM_Sankey_{did}"}}
+            )
+            st.caption(
+                "Suggested thesis caption: Analytical derivation flow from the selected Candidate Dimension "
+                "to its supporting Themes and PCL/Clusters. Link widths represent currently mapped First-Order Codes."
+            )
+            st.info("Interpret this as an analytical derivation structure, not as a causal model.")
 
     elif visual == "Theme × Study Heatmap":
         c1, c2 = st.columns(2)
