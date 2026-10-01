@@ -7,7 +7,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-APP_VERSION = "v0.14.6-prisma"
+APP_VERSION = "v0.14.7-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -222,14 +222,28 @@ def calculate_prisma(data: dict, file_bytes: bytes) -> dict:
     }
 
 
-def _stage_button(label: str, value: int, key: str, note: str = "") -> None:
+def _stage_button(
+    label: str,
+    value: int,
+    focus_key: str,
+    note: str = "",
+    element_key: str | None = None,
+) -> None:
+    """Render a clickable PRISMA box with a unique Streamlit widget identity."""
     text = f"{label}\\n(n = {value:,})"
     if note:
         text += f"\\n{note}"
-    if st.button(text, key=f"prisma_box_{key}", use_container_width=True):
-        st.session_state["prisma_focus"] = key
-        st.rerun()
 
+    # focus_key controls the analytical drill-down; element_key only makes
+    # the visual widget unique when the same analytical population is shown twice.
+    widget_key = element_key or focus_key
+    if st.button(
+        text,
+        key=f"prisma_box_{widget_key}",
+        use_container_width=True,
+    ):
+        st.session_state["prisma_focus"] = focus_key
+        st.rerun()
 
 def _arrow() -> None:
     st.markdown(
