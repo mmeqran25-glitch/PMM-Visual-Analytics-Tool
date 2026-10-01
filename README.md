@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.13.5
+# PMM Visual Analytics & Presentation Tool v0.14.0
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -238,6 +238,17 @@ Adds a dedicated researcher-only **Qualitative Visuals** workspace for thesis-re
 - The deep-dive mode retains the detailed Dimension → Theme → PCL/Cluster flow.
 - The overview is intentionally stopped at Theme level to avoid an unreadable all-corpus cluster network.
 - Link weights use mapped FOC counts as an analytical display aid; the visual is not a causal model.
+
+## v0.14.0 Qualitative rigor and boundary analysis
+
+Adds two researcher-only qualitative rigor outputs:
+
+- **Theme Boundary Cards**: selected Theme, central organizing concept, explicit Theme boundary, closest competing Theme, supporting Dimensions, counts of PCLs/FOCs/studies/evidence units, and cluster-level operational definition / inclusion / exclusion boundaries.
+- **Boundary documentation completeness**: reports documentation coverage for cluster definitions, inclusion boundaries and exclusion boundaries without treating completeness as a quality score.
+- **Negative / Deviant Case Matrix**: consolidates current Challenged FOCs, Provisional Clusters, Retired Themes, and resolved Reassigned/Withdrawn mappings when present in the MASTER.
+- Current and historical cases can be filtered separately and exported as CSV.
+- The interface explicitly treats these cases as audit evidence and boundary-testing material, not as errors or failures.
+- All outputs are read-only and derived from the current workbook.
 
 ## Workbook compatibility
 
