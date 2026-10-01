@@ -345,8 +345,9 @@ def main():
     all_sankey = build_all_dimensions_sankey(frames)
     assert len(all_sankey.data) == 1
     assert all_sankey.data[0].type == "sankey"
-    assert "DIM-001" in list(all_sankey.data[0].customdata[0])
-    assert any("THM-001" in str(x) for x in all_sankey.data[0].customdata)
+    all_labels = [str(x) for x in all_sankey.data[0].node.label]
+    assert any("DIM-001" in x for x in all_labels)
+    assert any("THM-001" in x for x in all_labels)
 
     sankey = build_dimension_sankey(frames, "DIM-001")
     assert len(sankey.data) == 1
