@@ -1,4 +1,4 @@
-# PMM Visual Analytics & Presentation Tool v0.13.0
+# PMM Visual Analytics & Presentation Tool v0.13.1
 
 A local Streamlit companion for the PMM dimension-derivation MASTER workbook.
 
@@ -207,6 +207,15 @@ Adds a dedicated researcher-only **Qualitative Visuals** workspace for thesis-re
 - Every visual includes a suggested thesis caption and an interpretation safeguard.
 - Retired Themes are excluded from current qualitative visuals.
 - These figures are presentation/analysis outputs only and never write back to the MASTER.
+
+## v0.13.1 Word Cloud Explorer
+
+- Adds **Word Cloud** to the Qualitative Visuals workspace.
+- Scope can be narrowed by current Candidate Dimension and/or Theme.
+- Word sources: Original Author Terms, First-Order Code labels, or Meaning Units / Evidence text.
+- Word frequency preprocessing is presentation-only and does not alter the MASTER.
+- Provides high-resolution PNG and CSV frequency-table downloads.
+- Includes an explicit methodological safeguard: Word Cloud is descriptive/exploratory and word size must not be interpreted as theoretical importance or evidence strength.
 
 ## Workbook compatibility
 
