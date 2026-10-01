@@ -16,7 +16,7 @@ from wordcloud import STOPWORDS, WordCloud
 
 from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids)
 
-QUAL_VIS_VERSION = "v0.14.2"
+QUAL_VIS_VERSION = "v0.14.3"
 
 PLOT_CONFIG = {
     "displaylogo": False,
@@ -823,21 +823,383 @@ def _entreq_evidence_hint(frames: Dict[str, pd.DataFrame], item_no: int) -> tupl
     return "Manual check", "Verify reporting in the thesis and supporting appendices."
 
 
+ENTREQ_PROVISIONAL_REVIEW = {
+    1: ("Ready to verify", "Research aim/question is established in the thesis project; confirm the exact synthesis question and section location."),
+    2: ("Ready – rationale needed", "The staged synthesis is explicit in the MASTER; ensure the written methodology names the synthesis approach and explains why it fits this review."),
+    3: ("Ready – protocol verification", "Search development is documented in the review workflow; confirm whether the final report describes it as pre-planned/comprehensive, iterative, or a justified combination."),
+    4: ("Ready – protocol verification", "Eligibility decisions exist; verify that the full inclusion/exclusion criteria are explicitly stated in the protocol/thesis."),
+    5: ("Ready – protocol verification", "Source traceability exists; verify databases, grey-literature sources, search dates, supplementary techniques and rationale in the written methods."),
+    6: ("Ready – appendix verification", "Search strings/limits should be reported or placed in an appendix; confirm the final reproducible search syntax."),
+    7: ("Ready – methods verification", "Screening decisions exist; confirm title/abstract/full-text stages and who performed each stage."),
+    8: ("Ready – strong evidence", "03_Study_Profile can directly support the included-study characteristics table."),
+    9: ("Pending final flow counts", "Final screened/included/excluded counts and exclusion reasons should be locked only after the review flow is complete."),
+    10: ("Pending appraisal phase", "Keep open until the appraisal rationale is finalised and reported."),
+    11: ("Pending appraisal phase", "Keep open until the appraisal framework/tool and assessed domains are finalised."),
+    12: ("Pending appraisal phase", "Keep open until reviewer roles/consensus procedures for appraisal are documented."),
+    13: ("Pending appraisal results", "Keep open until appraisal results and their effect on inclusion/weighting/interpretation are final."),
+    14: ("Ready – strong evidence", "04_Verbatim_Evidence provides source-near extraction traceability; verify the written extraction procedure and analysed study sections."),
+    15: ("Ready – methods verification", "Explicitly report the software actually used for extraction, coding, management and synthesis."),
+    16: ("Needs explicit statement", "The workbook cannot establish who participated in coding/analysis; this must be stated in the thesis."),
+    17: ("Ready – strong evidence", "05_First_Order_Coding provides direct coding traceability; describe how FOCs were generated and fidelity checked."),
+    18: ("Ready – strong evidence", "06_DeNovo_Clustering supports within/across-study comparison; describe constant comparison, negative cases and boundary testing."),
+    19: ("Ready – strong evidence", "07_Descriptive_Themes and 08_Candidate_Dimensions support inductive progressive abstraction; state clearly which steps were inductive and any theory-informed interpretation."),
+    20: ("Ready – select exemplars", "Verbatim evidence exists; select representative source-near extracts and identify provenance in the results."),
+    21: ("Ready but not final", "The Candidate-Dimension structure goes beyond study summary, but the final synthesis output should be locked only when the analytical structure is closed."),
+}
+
+
+def _entreq_provisional_review(item_no: int) -> tuple[str, str]:
+    return ENTREQ_PROVISIONAL_REVIEW.get(
+        item_no,
+        ("Manual verification", "Verify this item against the thesis and supporting protocol."),
+    )
+
+
 def build_entreq_audit_table(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     rows = []
     for no, domain, item, guide in ENTREQ_ITEMS:
         evidence_level, hint = _entreq_evidence_hint(frames, no)
+        provisional, review_note = _entreq_provisional_review(no)
         rows.append({
             "No.": no,
             "Domain": domain,
             "ENTREQ item": item,
             "Reporting expectation": guide,
             "Project evidence hint": evidence_level,
+            "Provisional review": provisional,
+            "Review rationale / next action": review_note,
             "Where to verify / current evidence": hint,
             "Status": "Not assessed",
             "Thesis location / note": "",
         })
     return pd.DataFrame(rows)
+
+
+DECISION_EVENT_PATTERNS = [
+    ("Split", [r"\bsplit\b", r"splitting"]),
+    ("Merge", [r"\bmerge\b", r"merged", r"merging"]),
+    ("Reassignment", [r"reassign", r"re-home", r"rehome", r"remap", r"re-map", r"moved to", r"move to"]),
+    ("Retirement / Withdrawal", [r"retir", r"withdraw", r"supersed"]),
+    ("Rename", [r"rename", r"renam"]),
+    ("Boundary Review", [r"boundary", r"overlap", r"heterogeneity", r"homogeneity"]),
+    ("Creation / Addition", [r"creat", r"new cluster", r"new theme", r"new dimension", r"add(?:ed|ition)?"]),
+    ("Closure", [r"clos(?:e|ed|ure)", r"finali[sz]", r"lock(?:ed)?"]),
+    ("Audit / Review", [r"\baudit\b", r"review"]),
+]
+
+
+def _first_existing_column(df: pd.DataFrame, candidates: List[str]) -> str | None:
+    lookup = {str(col).strip().lower(): col for col in df.columns}
+    for candidate in candidates:
+        hit = lookup.get(candidate.lower())
+        if hit is not None:
+            return hit
+    return None
+
+
+def _decision_sequence(decision_id: str, fallback: int) -> int:
+    m = re.search(r"(\d+)", _txt(decision_id))
+    return int(m.group(1)) if m else fallback
+
+
+def _decision_event_type(text: str) -> str:
+    low = _txt(text).lower()
+    for label, patterns in DECISION_EVENT_PATTERNS:
+        if any(re.search(p, low, flags=re.I) for p in patterns):
+            return label
+    return "Other Decision"
+
+
+def _decision_entities(text: str) -> str:
+    ids = re.findall(
+        r"\b(?:DEC|DIM|THM|PCL|PMAP|SR\d{1,5}|CD-SR\d{1,5}-\d+)\b(?:-\d+)?",
+        _txt(text),
+        flags=re.I,
+    )
+    cleaned = []
+    for item in ids:
+        item = item.upper()
+        if item not in cleaned and not item.startswith("DEC-"):
+            cleaned.append(item)
+    return "; ".join(cleaned)
+
+
+def build_audit_trail_events(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Build a chronological audit trail from 11_Decision_Log, enriched conservatively.
+
+    Calendar dates are used only when an explicit date/timestamp column exists.
+    Otherwise DEC numeric sequence is used as analytical chronology.
+    """
+    log = frames.get("11_Decision_Log", pd.DataFrame()).copy()
+    rows = []
+
+    if not log.empty:
+        id_col = _first_existing_column(log, ["Decision_ID", "DEC_ID", "Decision"])
+        date_col = _first_existing_column(
+            log,
+            ["Decision_Date", "Date", "Decision_Timestamp", "Timestamp", "Created_Date"],
+        )
+        title_col = _first_existing_column(
+            log,
+            ["Decision_Title", "Decision_Label", "Title", "Action", "Decision_Type"],
+        )
+        summary_col = _first_existing_column(
+            log,
+            ["Decision_Summary", "Summary", "Decision_Description", "Description", "Change_Description"],
+        )
+        rationale_col = _first_existing_column(
+            log,
+            ["Decision_Rationale", "Rationale", "Audit_Rationale", "Notes", "Decision_Notes"],
+        )
+        stage_col = _first_existing_column(
+            log,
+            ["Stage", "Analytical_Stage", "Phase", "Decision_Stage"],
+        )
+
+        for pos, (_, r) in enumerate(log.iterrows(), start=1):
+            did = _txt(r.get(id_col)) if id_col else f"ROW-{pos}"
+            pieces = []
+            for col in [title_col, summary_col, rationale_col]:
+                if col:
+                    value = _txt(r.get(col))
+                    if value and value not in pieces:
+                        pieces.append(value)
+            if not pieces:
+                other = [
+                    _txt(r.get(col))
+                    for col in log.columns
+                    if col != id_col and _txt(r.get(col))
+                ]
+                pieces = other[:3]
+            detail = " · ".join(pieces)
+            all_text = " ".join([did, detail, " ".join(_txt(r.get(col)) for col in log.columns)])
+            seq = _decision_sequence(did, pos)
+            raw_date = _txt(r.get(date_col)) if date_col else ""
+            parsed_date = pd.to_datetime(raw_date, errors="coerce") if raw_date else pd.NaT
+            rows.append({
+                "Decision_ID": did,
+                "DEC_Sequence": seq,
+                "Date": parsed_date,
+                "Event_Type": _decision_event_type(all_text),
+                "Stage": _txt(r.get(stage_col)) if stage_col else "",
+                "Entities": _decision_entities(all_text),
+                "Decision_Summary": detail,
+                "Evidence_Source": "11_Decision_Log",
+                "Chronology_Source": "Calendar date" if pd.notna(parsed_date) else "DEC sequence",
+            })
+
+    # Enrich retirement history when a DEC reference is explicitly present in Theme_Status.
+    retired = retired_themes(frames)
+    if not retired.empty:
+        for _, r in retired.iterrows():
+            status = _txt(r.get("Theme_Status"))
+            m = re.search(r"DEC[-\s]?(\d+)", status, flags=re.I)
+            if not m:
+                continue
+            did = f"DEC-{int(m.group(1))}"
+            tid = _txt(r.get("Theme_ID"))
+            rows.append({
+                "Decision_ID": did,
+                "DEC_Sequence": int(m.group(1)),
+                "Date": pd.NaT,
+                "Event_Type": "Retirement / Withdrawal",
+                "Stage": "Theme",
+                "Entities": tid,
+                "Decision_Summary": status,
+                "Evidence_Source": "07_Descriptive_Themes",
+                "Chronology_Source": "DEC sequence",
+            })
+
+    maps = frames.get("06_DeNovo_Clustering", pd.DataFrame()).copy()
+    if not maps.empty and "Mapping_Status" in maps.columns:
+        hist = maps[
+            maps["Mapping_Status"].fillna("").astype(str).str.contains(
+                r"Reassigned|Withdrawn|Re-home|Rehome", case=False, regex=True, na=False
+            )
+        ].copy()
+        for _, r in hist.iterrows():
+            status = _txt(r.get("Mapping_Status"))
+            text_blob = " ".join(
+                _txt(r.get(col))
+                for col in ["Mapping_Status", "Mapping_Rationale", "Boundary_Rationale", "Closest_Competing_Cluster"]
+                if col in hist.columns
+            )
+            m = re.search(r"DEC[-\s]?(\d+)", text_blob, flags=re.I)
+            if not m:
+                continue
+            did = f"DEC-{int(m.group(1))}"
+            rows.append({
+                "Decision_ID": did,
+                "DEC_Sequence": int(m.group(1)),
+                "Date": pd.NaT,
+                "Event_Type": "Reassignment",
+                "Stage": "FOC mapping",
+                "Entities": "; ".join(
+                    x for x in [_txt(r.get("Code_ID")), _txt(r.get("Cluster_ID"))] if x
+                ),
+                "Decision_Summary": text_blob,
+                "Evidence_Source": "06_DeNovo_Clustering",
+                "Chronology_Source": "DEC sequence",
+            })
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return pd.DataFrame(columns=[
+            "Decision_ID", "DEC_Sequence", "Date", "Event_Type", "Stage", "Entities",
+            "Decision_Summary", "Evidence_Source", "Chronology_Source",
+        ])
+
+    # Prefer Decision_Log rows when the same decision/type is also visible in status metadata.
+    out["_priority"] = out["Evidence_Source"].eq("11_Decision_Log").astype(int)
+    out = (
+        out.sort_values(["DEC_Sequence", "_priority"], ascending=[True, False])
+        .drop_duplicates(subset=["Decision_ID", "Event_Type", "Entities"], keep="first")
+        .drop(columns="_priority")
+        .reset_index(drop=True)
+    )
+    return out
+
+
+def build_audit_timeline_figure(events: pd.DataFrame) -> go.Figure:
+    if events.empty:
+        return go.Figure()
+
+    shown = events.copy()
+    has_dates = shown["Date"].notna().any() if "Date" in shown.columns else False
+    if has_dates:
+        # Undated events remain positioned by DEC sequence using a separate text-only hover,
+        # while the chronological x-axis uses explicit dates for dated rows.
+        dated = shown[shown["Date"].notna()].copy()
+        x = dated["Date"]
+        plot_df = dated
+        x_title = "Decision date"
+    else:
+        plot_df = shown.sort_values("DEC_Sequence").copy()
+        x = plot_df["DEC_Sequence"]
+        x_title = "DEC sequence (analytical chronology)"
+
+    if plot_df.empty:
+        plot_df = shown.sort_values("DEC_Sequence").copy()
+        x = plot_df["DEC_Sequence"]
+        x_title = "DEC sequence (analytical chronology)"
+
+    hover = []
+    for _, r in plot_df.iterrows():
+        hover.append(
+            f"{_txt(r.get('Decision_ID'))}<br>"
+            f"Type: {_txt(r.get('Event_Type'))}<br>"
+            f"Stage: {_txt(r.get('Stage')) or 'Not recorded'}<br>"
+            f"Entities: {_txt(r.get('Entities')) or 'Not recorded'}<br>"
+            f"{_short(r.get('Decision_Summary'), 180)}"
+        )
+
+    fig = go.Figure()
+    event_types = plot_df["Event_Type"].fillna("Other Decision").astype(str).drop_duplicates().tolist()
+    for event_type in event_types:
+        part = plot_df[plot_df["Event_Type"].astype(str).eq(event_type)].copy()
+        if has_dates and part["Date"].notna().any():
+            px = part["Date"]
+        else:
+            px = part["DEC_Sequence"]
+        phover = [
+            f"{_txt(r.get('Decision_ID'))}<br>"
+            f"Type: {_txt(r.get('Event_Type'))}<br>"
+            f"Stage: {_txt(r.get('Stage')) or 'Not recorded'}<br>"
+            f"Entities: {_txt(r.get('Entities')) or 'Not recorded'}<br>"
+            f"{_short(r.get('Decision_Summary'), 180)}"
+            for _, r in part.iterrows()
+        ]
+        fig.add_trace(go.Scatter(
+            x=px,
+            y=[event_type] * len(part),
+            mode="markers+text",
+            text=part["Decision_ID"].astype(str).tolist(),
+            textposition="top center",
+            hovertext=phover,
+            hoverinfo="text",
+            marker=dict(size=13, line=dict(width=1)),
+            name=event_type,
+        ))
+
+    fig.update_layout(
+        title="Analytical Audit-Trail Timeline",
+        height=max(520, min(900, 78 * len(event_types) + 220)),
+        margin=dict(l=20, r=20, t=70, b=50),
+        xaxis_title=x_title,
+        yaxis_title="",
+        legend_title_text="Decision event",
+        hovermode="closest",
+    )
+    return fig
+
+
+def render_audit_trail_timeline(frames: Dict[str, pd.DataFrame]) -> None:
+    st.markdown("### Audit-Trail Timeline")
+    st.caption(
+        "Chronology of documented analytical decisions. Explicit calendar dates are used when available; otherwise DEC number provides sequence, not elapsed time."
+    )
+    events = build_audit_trail_events(frames)
+    if events.empty:
+        st.info("No audit-trail events could be reconstructed from the current MASTER.")
+        return
+
+    types = events["Event_Type"].drop_duplicates().tolist()
+    selected_types = st.multiselect(
+        "Decision event types",
+        types,
+        default=types,
+        key="qual_audit_timeline_types",
+    )
+    source_options = events["Evidence_Source"].drop_duplicates().tolist()
+    selected_sources = st.multiselect(
+        "Evidence sources",
+        source_options,
+        default=source_options,
+        key="qual_audit_timeline_sources",
+    )
+    shown = events[
+        events["Event_Type"].isin(selected_types)
+        & events["Evidence_Source"].isin(selected_sources)
+    ].copy()
+
+    a, b, c, d = st.columns(4)
+    a.metric("Decisions/events", len(shown))
+    b.metric("Event types", shown["Event_Type"].nunique())
+    c.metric("Earliest DEC", int(shown["DEC_Sequence"].min()) if not shown.empty else 0)
+    d.metric("Latest DEC", int(shown["DEC_Sequence"].max()) if not shown.empty else 0)
+
+    fig = build_audit_timeline_figure(shown)
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            **PLOT_CONFIG,
+            "toImageButtonOptions": {
+                **PLOT_CONFIG["toImageButtonOptions"],
+                "filename": "PMM_Audit_Trail_Timeline",
+            },
+        },
+    )
+
+    with st.expander("View audit-trail event table", expanded=False):
+        st.dataframe(
+            shown.sort_values(["DEC_Sequence", "Decision_ID"]),
+            use_container_width=True,
+            hide_index=True,
+            height=520,
+        )
+
+    st.download_button(
+        "Download audit-trail events (CSV)",
+        shown.sort_values(["DEC_Sequence", "Decision_ID"]).to_csv(index=False).encode("utf-8-sig"),
+        "PMM_Audit_Trail_Timeline.csv",
+        "text/csv",
+        use_container_width=True,
+    )
+    st.info(
+        "Interpretation safeguard: the timeline documents the evolution of analytical decisions. "
+        "A high number of revisions is not a weakness; merge/split/reassignment/retirement can demonstrate active boundary testing when supported by recorded rationale."
+    )
 
 
 def render_entreq_reporting_audit(frames: Dict[str, pd.DataFrame]) -> None:
@@ -870,7 +1232,8 @@ def render_entreq_reporting_audit(frames: Dict[str, pd.DataFrame]) -> None:
         height=720,
         disabled=[
             "No.", "Domain", "ENTREQ item", "Reporting expectation",
-            "Project evidence hint", "Where to verify / current evidence",
+            "Project evidence hint", "Provisional review", "Review rationale / next action",
+            "Where to verify / current evidence",
         ],
         column_config={
             "No.": st.column_config.NumberColumn(width="small"),
@@ -878,6 +1241,8 @@ def render_entreq_reporting_audit(frames: Dict[str, pd.DataFrame]) -> None:
             "ENTREQ item": st.column_config.TextColumn(width="medium"),
             "Reporting expectation": st.column_config.TextColumn(width="large"),
             "Project evidence hint": st.column_config.TextColumn(width="medium"),
+            "Provisional review": st.column_config.TextColumn(width="medium"),
+            "Review rationale / next action": st.column_config.TextColumn(width="large"),
             "Where to verify / current evidence": st.column_config.TextColumn(width="large"),
             "Status": st.column_config.SelectboxColumn(
                 options=["Not assessed", "Covered", "Partial", "Missing", "N/A"],
@@ -931,7 +1296,7 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
 
     visual = st.radio(
         "Qualitative visual",
-        ["Analytical Sankey", "Theme Boundary Cards", "Negative / Deviant Cases", "ENTREQ Reporting Audit", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
+        ["Analytical Sankey", "Theme Boundary Cards", "Negative / Deviant Cases", "ENTREQ Reporting Audit", "Audit-Trail Timeline", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
         horizontal=True, key="qualitative_visual_choice"
     )
     st.divider()
@@ -992,6 +1357,9 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
 
     elif visual == "ENTREQ Reporting Audit":
         render_entreq_reporting_audit(frames)
+
+    elif visual == "Audit-Trail Timeline":
+        render_audit_trail_timeline(frames)
 
     elif visual == "Theme × Study Heatmap":
         c1, c2 = st.columns(2)
