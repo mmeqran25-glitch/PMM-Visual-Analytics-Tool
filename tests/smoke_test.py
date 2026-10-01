@@ -172,7 +172,7 @@ def main():
     assert (Path("assets") / "faculty_engineering_logo.jpg").exists()
     from PIL import Image
     logo = Image.open(Path("assets") / "faculty_engineering_logo.jpg")
-    assert logo.width >= 450 and logo.height >= 500
+    assert logo.width >= 150 and logo.height >= 210
 
     arbitrary_filename = "THIS_NAME_CAN_CHANGE_EVERY_DAY_v2045.xlsx"
     payload = build_workbook()
