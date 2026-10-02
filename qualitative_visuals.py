@@ -1131,21 +1131,31 @@ def build_audit_timeline_figure(events: pd.DataFrame) -> go.Figure:
 
 
 def _evolution_level(row: pd.Series) -> str:
-    blob = " ".join(
-        _txt(row.get(c))
-        for c in [
-            "Stage", "Decision", "Reason", "Affected_Sheets_or_Fields",
-            "Impact_on_Analysis", "Status", "Notes",
-        ]
-        if c in row.index
-    ).lower()
+    """Classify the primary analytical level without letting downstream impact text dominate."""
+    stage = _txt(row.get("Stage")).lower()
+    decision = _txt(row.get("Decision")).lower()
+    affected = _txt(row.get("Affected_Sheets_or_Fields")).lower()
+    primary = " ".join([stage, decision, affected])
 
-    has_sg2 = bool(re.search(r"\bsg2\b|foc|first[- ]order|mapping|reassign|re-home|rehome|pcl", blob))
-    has_sg3 = bool(re.search(r"\bsg3\b|theme|cluster[- ]to[- ]theme|cross-theme|dissolution", blob))
-    has_sg4 = bool(re.search(r"\bsg4\b|dimension|candidate dimension|cross-dimension|higher-order", blob))
+    stage_sg2 = bool(re.search(r"\bsg2\b", stage))
+    stage_sg3 = bool(re.search(r"\bsg3\b", stage))
+    stage_sg4 = bool(re.search(r"\bsg4\b", stage))
+    stage_hits = sum([stage_sg2, stage_sg3, stage_sg4])
 
-    levels = [has_sg2, has_sg3, has_sg4]
-    if sum(levels) > 1:
+    if stage_hits > 1:
+        return "Cross-level / system"
+    if stage_sg4:
+        return "Theme → Dimension"
+    if stage_sg3:
+        return "PCL → Theme"
+    if stage_sg2:
+        return "FOC → PCL"
+
+    has_sg4 = bool(re.search(r"candidate dimension|cross-dimension|higher-order|\bdim-\d+", primary))
+    has_sg3 = bool(re.search(r"theme|cluster[- ]to[- ]theme|cross-theme|dissolution|\bthm-\d+", primary))
+    has_sg2 = bool(re.search(r"foc|first[- ]order|mapping|reassign|re-home|rehome|\bpcl-\d+", primary))
+
+    if sum([has_sg2, has_sg3, has_sg4]) > 1:
         return "Cross-level / system"
     if has_sg4:
         return "Theme → Dimension"
