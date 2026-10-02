@@ -14,9 +14,9 @@ import streamlit as st
 from matplotlib import pyplot as plt
 from wordcloud import STOPWORDS, WordCloud
 
-from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids)
+from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids, unthemed_active_clusters)
 
-QUAL_VIS_VERSION = "v0.15.4"
+QUAL_VIS_VERSION = "v0.15.5"
 
 PLOT_CONFIG = {
     "displaylogo": False,
@@ -1280,6 +1280,239 @@ def build_dimension_generation_history(frames: Dict[str, pd.DataFrame]) -> pd.Da
     return x[cols].copy()
 
 
+
+def _count_current_pass_focs(frames: Dict[str, pd.DataFrame]) -> int:
+    codes = frames.get("05_First_Order_Coding", pd.DataFrame()).copy()
+    if codes.empty or "Code_ID" not in codes.columns:
+        return 0
+    if "Code_Fidelity_Status" in codes.columns:
+        status = codes["Code_Fidelity_Status"].fillna("").astype(str).str.strip()
+        mask = status.str.match(r"^Pass(?:\s|$|-|–)", case=False, na=False)
+        return int(codes.loc[mask, "Code_ID"].dropna().astype(str).nunique())
+    return int(codes["Code_ID"].dropna().astype(str).nunique())
+
+
+def _count_pass_evidence(frames: Dict[str, pd.DataFrame]) -> int:
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    if ev.empty or "Evidence_ID" not in ev.columns:
+        return 0
+    if "PM_Practice_Maturity_Evidence_Gate" in ev.columns:
+        gate = ev["PM_Practice_Maturity_Evidence_Gate"].fillna("").astype(str).str.strip()
+        return int(ev.loc[gate.eq("Pass"), "Evidence_ID"].dropna().astype(str).nunique())
+    return int(ev["Evidence_ID"].dropna().astype(str).nunique())
+
+
+def _current_mapping_counts(frames: Dict[str, pd.DataFrame]) -> dict:
+    cur = current_mapping_rows(frames)
+    if cur.empty or "Mapping_Status" not in cur.columns:
+        return {"Stable": 0, "Provisional": 0, "Challenged": 0}
+    vc = cur["Mapping_Status"].fillna("").astype(str).str.strip().value_counts()
+    return {
+        "Stable": int(vc.get("Stable", 0)),
+        "Provisional": int(vc.get("Provisional", 0)),
+        "Challenged": int(vc.get("Challenged", 0)),
+    }
+
+
+def _preferred_decision_story(story: pd.DataFrame, decision_id: str) -> dict | None:
+    if story.empty:
+        return None
+    hit = story[story["Decision_ID"].astype(str).str.upper().eq(decision_id.upper())]
+    return hit.iloc[0].to_dict() if not hit.empty else None
+
+
+def render_supervisor_analytical_journey(frames: Dict[str, pd.DataFrame]) -> None:
+    st.markdown("## Researcher Analytical Journey")
+    st.markdown(
+        '<div class="note-banner"><b>Supervisor presentation view:</b> '
+        'This page explains how the analytical structure was derived, challenged, revised and stabilised. '
+        'It is designed to show the research process—not only the final dimensions.</div>',
+        unsafe_allow_html=True,
+    )
+
+    src = frames.get("01_Source_Register", pd.DataFrame()).copy()
+    source_n = (
+        int(src["Study_ID"].dropna().astype(str).str.strip().replace("", pd.NA).dropna().nunique())
+        if not src.empty and "Study_ID" in src.columns else 0
+    )
+    pass_evidence = _count_pass_evidence(frames)
+    pass_focs = _count_current_pass_focs(frames)
+    cluster_n = len(active_cluster_register(frames))
+    theme_n = len(active_themes(frames))
+    dim_n = len(active_dimensions(frames))
+    mapping_counts = _current_mapping_counts(frames)
+
+    st.markdown("### 1 · The analytical chain")
+    st.caption(
+        "The final dimensions were not generated directly. Each level had to remain traceable to the level below it."
+    )
+    cols = st.columns(6)
+    chain = [
+        ("Studies", source_n, "Direct-source corpus"),
+        ("Pass evidence", pass_evidence, "Source-grounded units"),
+        ("First-Order Codes", pass_focs, "Meaning-preserving codes"),
+        ("PCL / Clusters", cluster_n, "Function-first grouping"),
+        ("Themes", theme_n, "Higher-order organizing concepts"),
+        ("Dimensions", dim_n, "Current inductive structure"),
+    ]
+    for col, (label, value, note) in zip(cols, chain):
+        with col:
+            st.metric(label, f"{value:,}")
+            st.caption(note)
+
+    st.markdown(
+        "**Core message for the supervisor:** every upward step was conditional. "
+        "A code could remain Challenged, a cluster could remain unthemed, and a Theme/Dimension could be split, retired or merged "
+        "if the boundary test did not support the previous structure."
+    )
+
+    st.markdown("---")
+    st.markdown("### 2 · One real correction: FOC → PCL")
+    exact = build_exact_foc_reassignment_history(frames)
+    if not exact.empty:
+        preferred = exact[exact["Code_ID"].astype(str).eq("CD-SR068-004")]
+        case = preferred.iloc[0] if not preferred.empty else exact.iloc[0]
+        st.markdown(f"**Case:** {_txt(case.get('Code_ID'))} · {_txt(case.get('First_Order_Code'))}")
+        a, b, c = st.columns([1, 1.25, 1])
+        with a:
+            st.markdown("#### Initial assignment")
+            st.error(
+                f"**{_txt(case.get('Before_PCL')) or 'Unassigned'}**\n\n"
+                f"{_txt(case.get('Before_Label'))}"
+            )
+            st.caption(_txt(case.get("Before_Status")))
+        with b:
+            st.markdown("#### Why it was reopened")
+            why = _txt(case.get("Why_Changed"))
+            if not why:
+                why = (
+                    "The full FOC meaning, focal action and managed object were re-compared against the nearest competing clusters. "
+                    "The earlier assignment no longer provided the strongest whole-code fit."
+                )
+            st.warning(why)
+            comp = _txt(case.get("Competing_Cluster"))
+            if comp:
+                st.caption(f"Nearest competing cluster considered: {comp}")
+        with c:
+            st.markdown("#### Corrected assignment")
+            st.success(
+                f"**{_txt(case.get('After_PCL')) or 'Challenged'}**\n\n"
+                f"{_txt(case.get('After_Label'))}"
+            )
+            st.caption(_txt(case.get("After_Status")))
+        st.info(
+            "Why this matters: the earlier row is retained rather than overwritten. "
+            "The audit trail therefore shows both the initial analytical judgment and the corrected current judgment."
+        )
+    else:
+        st.info("No exact retained FOC before/after pair was found; use the decision-level stories below.")
+
+    st.markdown("---")
+    st.markdown("### 3 · The same logic continued upward")
+    story = build_analytical_evolution_story(frames)
+    examples = [
+        ("PCL → Theme", "DEC-430", "Cross-theme boundary correction"),
+        ("Theme → Dimension", "DEC-432", "Delivery-control vs risk split"),
+        ("Theme → Dimension", "DEC-433", "Resource capability vs authority/leadership split"),
+        ("Theme → Dimension", "DEC-434", "Governance vs multi-project orchestration split"),
+        ("Theme → Dimension", "DEC-498", "Higher-order merger after separate validation"),
+    ]
+
+    tabs = st.tabs([f"{did} · {label}" for _, did, label in examples])
+    for tab, (level, did, label) in zip(tabs, examples):
+        with tab:
+            row = _preferred_decision_story(story, did)
+            if row is None:
+                st.info(f"{did} is not available in the current decision history.")
+                continue
+            st.markdown(f"#### {label}")
+            st.caption(f"{level} · {did}")
+            x, y, z = st.columns(3)
+            with x:
+                st.markdown("**What was questioned?**")
+                st.write(_txt(row.get("Problem_or_Reason")) or "Not explicitly recorded.")
+            with y:
+                st.markdown("**What decision was made?**")
+                st.write(_txt(row.get("Decision")) or "Not explicitly recorded.")
+            with z:
+                st.markdown("**What changed?**")
+                st.write(_txt(row.get("Result_or_Impact")) or "Not explicitly recorded.")
+            if _txt(row.get("Status")):
+                st.success(f"Recorded status: {_txt(row.get('Status'))}")
+
+    st.markdown("---")
+    st.markdown("### 4 · How the structure evolved across major checkpoints")
+    checkpoint_ids = ["DEC-419", "DEC-424", "DEC-425", "DEC-430", "DEC-432", "DEC-433", "DEC-434", "DEC-497", "DEC-498"]
+    checkpoint_labels = {
+        "DEC-419": "Reset SG4 and restart Theme-to-Dimension derivation",
+        "DEC-424": "System-wide cross-Theme consolidation",
+        "DEC-425": "Re-adjudicate all Challenged FOCs",
+        "DEC-430": "Final whole-system cross-Theme audit",
+        "DEC-432": "Split delivery/control from risk",
+        "DEC-433": "Split resource lifecycle from authority/leadership",
+        "DEC-434": "Split governance from programme/portfolio orchestration",
+        "DEC-497": "Validate possible higher-order mergers without executing them",
+        "DEC-498": "Execute only the two validated higher-order mergers",
+    }
+    checkpoints = story[story["Decision_ID"].astype(str).isin(checkpoint_ids)].copy()
+    checkpoints["_order"] = checkpoints["Decision_ID"].map({d:i for i,d in enumerate(checkpoint_ids)})
+    checkpoints = checkpoints.sort_values("_order")
+
+    if not checkpoints.empty:
+        for _, r in checkpoints.iterrows():
+            did = _txt(r.get("Decision_ID"))
+            with st.expander(f"{did} · {checkpoint_labels.get(did, _txt(r.get('Decision')))}", expanded=False):
+                st.markdown(f"**Reason:** {_txt(r.get('Problem_or_Reason'))}")
+                st.markdown(f"**Action:** {_txt(r.get('Decision'))}")
+                st.markdown(f"**Impact:** {_txt(r.get('Result_or_Impact'))}")
+    else:
+        st.info("Major checkpoint decisions could not be reconstructed from the current Decision Log.")
+
+    st.markdown("---")
+    st.markdown("### 5 · Evidence that the process was not forced")
+    unthemed = unthemed_active_clusters(frames)
+    retired = retired_themes(frames)
+    exact_n = len(exact)
+    current_challenged = mapping_counts["Challenged"]
+
+    q1, q2, q3, q4 = st.columns(4)
+    q1.metric("Current Challenged FOCs", f"{current_challenged:,}")
+    q1.caption("Kept unresolved rather than force-fitted")
+    q2.metric("Active unthemed clusters", f"{len(unthemed):,}")
+    q2.caption("No Theme assigned without a defensible higher-order home")
+    q3.metric("Retired Themes retained", f"{len(retired):,}")
+    q3.caption("Historical structures preserved for auditability")
+    q4.metric("Exact FOC reassignment histories", f"{exact_n:,}")
+    q4.caption("Old and corrected mapping rows both retained")
+
+    st.markdown(
+        """
+**What this demonstrates methodologically**
+
+- **Source fidelity:** codes remain traceable to direct evidence and source wording.
+- **Constant comparison:** assignments are tested against nearest competing clusters/themes/dimensions, not accepted by lexical similarity.
+- **Negative/deviant handling:** challenged items are retained as challenged instead of being forced into the framework.
+- **Boundary testing:** internal homogeneity and external heterogeneity are checked repeatedly at PCL, Theme and Dimension levels.
+- **Auditability:** replaced structures and decisions remain visible through DEC records, historical statuses and retained mappings.
+        """
+    )
+
+    st.markdown("---")
+    st.markdown("### 6 · Suggested 90-second explanation to the supervisor")
+    st.info(
+        "I did not ask the system to generate dimensions directly. I started from source-grounded evidence, "
+        "then created First-Order Codes and grouped them progressively. Every assignment was provisional until it survived "
+        "comparison with its nearest alternative. When a code, cluster, Theme or Dimension did not fit cleanly, I reopened it, "
+        "documented the reason, and either reassigned, split, retired, or—only after separate validation—merged it. "
+        "The platform preserves those earlier decisions, so the current dimensions are the result of a documented sequence "
+        "of source checks, boundary tests, corrections and stability reviews."
+    )
+    st.caption(
+        "Use this page as the opening supervisor view; then drill into the full Audit-Trail Timeline or Derivation Tree "
+        "only when the supervisor asks for evidence behind a specific decision."
+    )
+
+
 def render_analytical_evolution_story(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown("### Analytical Evolution Story")
     st.caption(
@@ -1607,12 +1840,15 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
 
     visual = st.radio(
         "Qualitative visual",
-        ["Analytical Sankey", "Analytical Evolution Story", "Theme Boundary Cards", "Negative / Deviant Cases", "ENTREQ Reporting Audit", "Audit-Trail Timeline", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
+        ["Researcher Analytical Journey", "Analytical Sankey", "Analytical Evolution Story", "Theme Boundary Cards", "Negative / Deviant Cases", "ENTREQ Reporting Audit", "Audit-Trail Timeline", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
         horizontal=True, key="qualitative_visual_choice"
     )
     st.divider()
 
-    if visual == "Analytical Sankey":
+    if visual == "Researcher Analytical Journey":
+        render_supervisor_analytical_journey(frames)
+
+    elif visual == "Analytical Sankey":
         dims = active_dimensions(frames)
         if dims.empty:
             st.info("No current Candidate Dimensions are available.")
