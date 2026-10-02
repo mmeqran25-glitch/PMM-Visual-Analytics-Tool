@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+import html
 from typing import Dict, Any, Iterable
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from master_utils import (
     active_cluster_register,
@@ -15,7 +17,7 @@ from master_utils import (
     theme_cluster_map,
 )
 
-EVIDENCE_MATRIX_VERSION = "v0.16.0"
+EVIDENCE_MATRIX_VERSION = "v0.16.1"
 
 
 def _clean_text(value: Any) -> str:
@@ -276,23 +278,32 @@ def _selection_rows(event: Any) -> list[int]:
     return []
 
 
+
 def _show_matrix(df: pd.DataFrame, key: str, height: int = 560) -> tuple[Any, pd.DataFrame]:
+    """Render a selectable research matrix while keeping the row identifier visible.
+
+    The analytical identifier remains the dataframe index so Streamlit keeps it
+    separate from horizontally scrolling evidence columns. A reset copy is
+    returned only for selection lookup.
+    """
     shown = df.reset_index()
+    display_df = df.copy()
+    if display_df.index.name is None:
+        display_df.index.name = "Study_ID"
     try:
         event = st.dataframe(
-            shown,
+            display_df,
             use_container_width=True,
-            hide_index=True,
+            hide_index=False,
             height=height,
             on_select="rerun",
             selection_mode="single-row",
             key=key,
         )
     except TypeError:
-        st.dataframe(shown, use_container_width=True, hide_index=True, height=height)
+        st.dataframe(display_df, use_container_width=True, hide_index=False, height=height)
         event = None
     return event, shown
-
 
 def _decision_history(frames: Dict[str, pd.DataFrame], identifiers: list[str]) -> pd.DataFrame:
     log = frames.get("11_Decision_Log", pd.DataFrame()).copy()
@@ -368,6 +379,170 @@ def _study_label(rows: pd.DataFrame, study_id: str) -> str:
     return " — ".join(parts)
 
 
+
+def _matrix_legend(mode: str) -> None:
+    if mode == "Presence":
+        st.caption("Legend: ● = Theme/Dimension represented by current active evidence · blank = no current active evidence.")
+    elif mode == "FOC Count":
+        st.caption("Legend: number = distinct current First-Order Codes contributed by the study.")
+    else:
+        st.caption("Legend: number = distinct current PCLs through which the study contributes to the Theme/Dimension.")
+
+
+def _theme_support_summary(rows: pd.DataFrame, theme_ids: list[str]) -> pd.DataFrame:
+    if rows.empty or "Theme_ID" not in rows.columns:
+        return pd.DataFrame()
+    x = rows[rows["Theme_ID"].fillna("").astype(str).isin(theme_ids)].copy()
+    if x.empty:
+        return pd.DataFrame()
+    agg_map = {
+        "Study_ID": pd.Series.nunique,
+        "Code_ID": pd.Series.nunique,
+        "Cluster_ID": pd.Series.nunique,
+    }
+    if "Evidence_Family_ID" in x.columns:
+        agg_map["Evidence_Family_ID"] = pd.Series.nunique
+    out = x.groupby("Theme_ID").agg(agg_map).reset_index()
+    out = out.rename(columns={
+        "Study_ID": "Independent_Studies",
+        "Evidence_Family_ID": "Evidence_Families",
+        "Code_ID": "FOCs",
+        "Cluster_ID": "PCLs",
+    })
+    return out
+
+
+def _add_study_row_summaries(matrix: pd.DataFrame, rows: pd.DataFrame, theme_ids: list[str]) -> pd.DataFrame:
+    if matrix.empty or rows.empty:
+        return matrix
+    x = rows[rows["Theme_ID"].fillna("").astype(str).isin(theme_ids)].copy()
+    if x.empty:
+        return matrix
+    summary = x.groupby("Study_ID").agg(
+        Themes_Present=("Theme_ID", "nunique"),
+        FOCs_Contributed=("Code_ID", "nunique"),
+    )
+    return matrix.join(summary, how="left").fillna({"Themes_Present": 0, "FOCs_Contributed": 0})
+
+
+def _theme_selector(eligible: list[str], labels: dict[str, str], key: str, button_label: str) -> list[str]:
+    state_key = f"{key}_selection"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = eligible
+    else:
+        st.session_state[state_key] = [x for x in st.session_state[state_key] if x in eligible]
+        if not st.session_state[state_key] and eligible:
+            st.session_state[state_key] = eligible
+
+    with st.popover(f"{button_label} ({len(st.session_state[state_key])}/{len(eligible)})", use_container_width=False):
+        selected = st.multiselect(
+            "Select one or more Themes",
+            eligible,
+            default=st.session_state[state_key],
+            format_func=lambda x: f"{x} — {labels.get(x, '')}",
+            key=f"{key}_multiselect",
+        )
+        st.session_state[state_key] = selected
+        if st.button("Select all", key=f"{key}_all"):
+            st.session_state[state_key] = eligible
+            st.rerun()
+        if st.button("Clear", key=f"{key}_clear"):
+            st.session_state[state_key] = []
+            st.rerun()
+    return list(st.session_state[state_key])
+
+
+def _mehri_matrix_html(matrix: pd.DataFrame, rows: pd.DataFrame, theme_labels: dict[str, str], title: str) -> str:
+    if matrix.empty:
+        return ""
+    theme_cols = [c for c in matrix.columns if str(c).startswith("THM-")]
+    study_ids = matrix.index.astype(str).tolist()
+
+    head = [
+        "<th class='study-col'>Article / Study</th>",
+        *[
+            f"<th title='{html.escape(theme_labels.get(tid, ''))}'><span>{html.escape(tid)}</span></th>"
+            for tid in theme_cols
+        ],
+    ]
+    body_rows = []
+    for sid in study_ids:
+        label = html.escape(_study_label(rows, sid))
+        cells = [f"<td class='study-col'>{label}</td>"]
+        for tid in theme_cols:
+            val = str(matrix.loc[sid, tid]).strip()
+            cells.append("<td class='mark'>●</td>" if val else "<td></td>")
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    return f"""
+    <html>
+    <head>
+    <style>
+      body {{font-family:Segoe UI,Tahoma,Arial,sans-serif;color:#17324d;margin:0;background:white;}}
+      .matrix-title {{font-size:15px;font-weight:800;margin:0 0 8px 0;color:#12385e;}}
+      .note {{font-size:12px;color:#63788c;margin:0 0 10px 0;}}
+      .wrap {{border:1px solid #d8e3ec;border-radius:12px;overflow:auto;max-height:720px;}}
+      table {{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:11px;}}
+      th,td {{border-right:1px solid #e5ebf0;border-bottom:1px solid #e5ebf0;padding:6px 7px;text-align:center;background:#fff;}}
+      th {{position:sticky;top:0;background:#f5f8fb;z-index:3;color:#35546d;font-weight:800;white-space:nowrap;}}
+      .study-col {{position:sticky;left:0;text-align:left;min-width:250px;max-width:320px;z-index:2;background:#fff;}}
+      th.study-col {{z-index:4;background:#f5f8fb;}}
+      td.study-col {{font-weight:650;color:#234967;}}
+      .mark {{font-size:15px;font-weight:900;color:#12385e;}}
+      tr:hover td {{background:#f8fbfd;}}
+      tr:hover td.study-col {{background:#eef6fa;}}
+    </style>
+    </head>
+    <body>
+      <div class="matrix-title">{html.escape(title)}</div>
+      <div class="note">● = Theme represented by current active evidence. Blank = no current active evidence. Presence is descriptive, not a quality or importance score.</div>
+      <div class="wrap">
+        <table>
+          <thead><tr>{''.join(head)}</tr></thead>
+          <tbody>{''.join(body_rows)}</tbody>
+        </table>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def _render_mehri_style_tab(frames: Dict[str, pd.DataFrame], rows: pd.DataFrame, use_families: bool, min_support: int) -> None:
+    st.markdown("#### Literature Classification Matrix — presentation view")
+    st.caption(
+        "A clean presence/absence view inspired by literature-classification tables. "
+        "It is generated from the current traceable MASTER links rather than manually marked cells."
+    )
+    themes = active_themes(frames)
+    if themes.empty:
+        st.info("No current Themes are available.")
+        return
+
+    labels = dict(zip(
+        themes["Theme_ID"].astype(str),
+        themes.get("Working_Theme_Label", pd.Series("", index=themes.index)).fillna("").astype(str),
+    ))
+    support = _support_ids(rows.dropna(subset=["Theme_ID"]) if "Theme_ID" in rows.columns else rows, "Theme_ID", use_families)
+    eligible = [tid for tid in themes["Theme_ID"].astype(str).tolist() if int(support.get(tid, 0)) >= min_support]
+    selected = _theme_selector(eligible, labels, "ecm_mehri_themes", "Choose presentation Themes")
+    if not selected:
+        st.info("Choose at least one Theme for the presentation matrix.")
+        return
+
+    x = rows[rows["Theme_ID"].fillna("").astype(str).isin(selected)].copy()
+    matrix = build_study_theme_matrix(x, mode="Presence", theme_ids=selected)
+    if matrix.empty:
+        st.info("No links remain after the selected filters.")
+        return
+
+    components.html(
+        _mehri_matrix_html(matrix, x, labels, "Study × Theme literature classification"),
+        height=780,
+        scrolling=False,
+    )
+    _download_csv("Download presentation matrix CSV", matrix, "PMM_Mehri_Style_Literature_Matrix.csv", "ecm_download_mehri")
+
+
 def _render_study_theme_tab(
     frames: Dict[str, pd.DataFrame],
     rows: pd.DataFrame,
@@ -379,17 +554,14 @@ def _render_study_theme_tab(
     if themes.empty:
         st.info("No current Themes are available.")
         return
-    theme_labels = dict(zip(themes["Theme_ID"].astype(str), themes.get("Working_Theme_Label", pd.Series("", index=themes.index)).fillna("").astype(str)))
+    theme_labels = dict(zip(
+        themes["Theme_ID"].astype(str),
+        themes.get("Working_Theme_Label", pd.Series("", index=themes.index)).fillna("").astype(str),
+    ))
     support = _support_ids(rows.dropna(subset=["Theme_ID"]) if "Theme_ID" in rows.columns else rows, "Theme_ID", use_families)
     eligible = [tid for tid in themes["Theme_ID"].astype(str).tolist() if int(support.get(tid, 0)) >= min_support]
 
-    selected = st.multiselect(
-        "Themes shown as columns",
-        eligible,
-        default=eligible,
-        format_func=lambda x: f"{x} — {theme_labels.get(x, '')}",
-        key="ecm_theme_columns",
-    )
+    selected = _theme_selector(eligible, theme_labels, "ecm_theme_columns", "Choose Themes")
     if not selected:
         st.info("Select at least one Theme.")
         return
@@ -400,9 +572,35 @@ def _render_study_theme_tab(
         st.info("No Study × Theme links remain after the selected filters.")
         return
 
+    presentation = st.toggle(
+        "Presentation View",
+        value=False,
+        key="ecm_theme_presentation",
+        help="Shows a clean Mehri-style presence/absence matrix with a sticky Study column.",
+    )
+    _matrix_legend("Presence" if presentation else mode)
+
+    if presentation:
+        presence = build_study_theme_matrix(x, mode="Presence", theme_ids=selected)
+        components.html(
+            _mehri_matrix_html(presence, x, theme_labels, "Study × Theme evidence coverage"),
+            height=760,
+            scrolling=False,
+        )
+        _download_csv("Download Study × Theme CSV", presence, "PMM_Study_Theme_Matrix.csv", "ecm_download_theme")
+        return
+
+    matrix = _add_study_row_summaries(matrix, x, selected)
     st.caption("Select a study row, then choose one populated Theme below to inspect the full evidence chain.")
     event, shown = _show_matrix(matrix, key="ecm_study_theme_table")
     _download_csv("Download Study × Theme CSV", matrix, "PMM_Study_Theme_Matrix.csv", "ecm_download_theme")
+
+    support_table = _theme_support_summary(x, selected)
+    with st.expander("Theme coverage summary — independent studies, evidence families, FOCs and PCLs"):
+        if support_table.empty:
+            st.caption("No Theme coverage summary is available.")
+        else:
+            st.dataframe(support_table, use_container_width=True, hide_index=True)
 
     selected_rows = _selection_rows(event)
     if selected_rows:
@@ -418,7 +616,7 @@ def _render_study_theme_tab(
                     key=f"ecm_cell_theme_{study_id}",
                 )
                 ev = x[(x["Study_ID"].astype(str) == study_id) & (x["Theme_ID"].astype(str) == tid)].copy()
-                _render_trace_details(frames, ev, f"{_study_label(x, study_id)} × {tid}")
+                _render_trace_details(frames, ev, f"Why is {study_id} mapped to {tid}?")
 
 
 def _render_study_dimension_tab(
@@ -432,17 +630,21 @@ def _render_study_dimension_tab(
     if dims.empty:
         st.info("No current Candidate Dimensions are available.")
         return
-    labels = dict(zip(dims["Dimension_ID"].astype(str), dims.get("Candidate_Dimension_Name", pd.Series("", index=dims.index)).fillna("").astype(str)))
+    labels = dict(zip(
+        dims["Dimension_ID"].astype(str),
+        dims.get("Candidate_Dimension_Name", pd.Series("", index=dims.index)).fillna("").astype(str),
+    ))
     support = _support_ids(rows.dropna(subset=["Dimension_ID"]) if "Dimension_ID" in rows.columns else rows, "Dimension_ID", use_families)
     eligible = [did for did in dims["Dimension_ID"].astype(str).tolist() if int(support.get(did, 0)) >= min_support]
 
-    selected = st.multiselect(
-        "Candidate Dimensions shown as columns",
-        eligible,
-        default=eligible,
-        format_func=lambda x: f"{x} — {labels.get(x, '')}",
-        key="ecm_dim_columns",
-    )
+    with st.popover(f"Choose Candidate Dimensions ({len(eligible)})"):
+        selected = st.multiselect(
+            "Candidate Dimensions shown as columns",
+            eligible,
+            default=eligible,
+            format_func=lambda x: f"{x} — {labels.get(x, '')}",
+            key="ecm_dim_columns",
+        )
     if not selected:
         st.info("Select at least one Candidate Dimension.")
         return
@@ -453,6 +655,7 @@ def _render_study_dimension_tab(
         st.info("No Study × Dimension links remain after the selected filters.")
         return
 
+    _matrix_legend(mode)
     st.caption("Select a study row, then choose one populated Candidate Dimension below to inspect the full evidence chain.")
     event, shown = _show_matrix(matrix, key="ecm_study_dim_table")
     _download_csv("Download Study × Dimension CSV", matrix, "PMM_Study_Dimension_Matrix.csv", "ecm_download_dim")
@@ -471,8 +674,7 @@ def _render_study_dimension_tab(
                     key=f"ecm_cell_dim_{study_id}",
                 )
                 ev = x[(x["Study_ID"].astype(str) == study_id) & (x["Dimension_ID"].astype(str) == did)].copy()
-                _render_trace_details(frames, ev, f"{_study_label(x, study_id)} × {did}")
-
+                _render_trace_details(frames, ev, f"Why is {study_id} mapped to {did}?")
 
 def _render_boundary_tab(frames: Dict[str, pd.DataFrame]) -> None:
     themes = active_themes(frames)
@@ -620,10 +822,11 @@ def render_evidence_coverage_matrices(frames: Dict[str, pd.DataFrame]) -> None:
         mode = st.radio("Cell display", ["Presence", "FOC Count", "PCL Count"], horizontal=False, key="ecm_mode")
     with f4:
         use_families = st.checkbox(
-            "Use evidence families for breadth threshold",
+            "Independent families",
             value=family_available,
             disabled=not family_available,
             key="ecm_family_threshold",
+            help="Use explicit Study_Family_ID / canonical-family metadata for breadth filtering so derivative records are not treated as independent corroboration.",
         )
 
     search = st.text_input("Study search", placeholder="SR933, author, year, title, country, sector ...", key="ecm_study_search")
@@ -652,6 +855,7 @@ def render_evidence_coverage_matrices(frames: Dict[str, pd.DataFrame]) -> None:
         "Study × Candidate Dimension",
         "PCL × Theme Boundary",
         "Evidence Diversity",
+        "Mehri-style Literature Matrix",
     ])
     with tabs[0]:
         _render_study_theme_tab(frames, filtered, mode, use_families and family_available, min_support)
@@ -661,3 +865,5 @@ def render_evidence_coverage_matrices(frames: Dict[str, pd.DataFrame]) -> None:
         _render_boundary_tab(frames)
     with tabs[3]:
         _render_diversity_tab(filtered, family_available, family_source)
+    with tabs[4]:
+        _render_mehri_style_tab(frames, filtered, use_families and family_available, min_support)
