@@ -17,7 +17,7 @@ from tree_utils import build_selected_themes_tree_data
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
 from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image, build_theme_boundary_profile, build_negative_deviant_case_matrix, build_entreq_audit_table, build_audit_trail_events, build_audit_timeline_figure, ENTREQ_ITEMS
-from evidence_matrix import build_evidence_links, build_study_theme_matrix, build_study_dimension_matrix, build_pcl_theme_matrix
+from evidence_matrix import build_evidence_links, build_study_theme_matrix, build_study_dimension_matrix, build_pcl_theme_matrix, build_dimension_evidence_synthesis
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -194,6 +194,12 @@ def main():
     assert int(sdm.loc["SR001", "DIM-001"]) == 1, sdm
     ptm = build_pcl_theme_matrix(frames, ["THM-001"])
     assert ptm.loc["PCL-001", "THM-001"] == "●", ptm
+
+    synth = build_dimension_evidence_synthesis(links, "DIM-001")
+    assert len(synth) == 1, synth
+    assert synth.iloc[0]["Study_ID"] == "SR001", synth
+    assert synth.iloc[0]["Factors_or_Contributions"] == "Synthetic Cluster", synth
+    assert int(synth.iloc[0]["FOC_Count"]) == 1, synth
 
     snap = master_snapshot(frames)
     assert snap["version"] == "v99.123", snap
