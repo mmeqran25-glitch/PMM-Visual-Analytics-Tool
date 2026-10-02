@@ -14,9 +14,16 @@ from researcher_cache import (
     clear_cached_prisma,
     load_cached_master,
 )
-from master_utils import load_master_workbook, validate_master
+from master_utils import (
+    load_master_workbook,
+    validate_master,
+    active_dimensions,
+    active_themes,
+    current_mapping_rows,
+    split_ids,
+)
 
-APP_VERSION = "v0.15.2-prisma"
+APP_VERSION = "v0.15.3-prisma"
 REQUIRED_MASTER_COLUMNS = {
     "Study ID",
     "Identification Source",
@@ -648,15 +655,14 @@ def _normalized_study_ids(series: pd.Series) -> pd.Series:
     return series.fillna("").astype(str).str.strip().str.upper()
 
 
-def _dimension_formation_studies_from_cached_master() -> dict:
-    """Return current PMM dimension-formation eligible Study IDs from the cached PMM MASTER."""
+def _pm_master_study_sets_from_cache() -> dict:
+    """Return several defensible PMM study universes from the cached MASTER."""
     cached = load_cached_master()
     if cached is None:
         return {
             "available": False,
             "filename": "",
-            "eligible_ids": set(),
-            "source_count": 0,
+            "sets": {},
             "issues": ["No cached PMM MASTER is available."],
         }
 
@@ -668,8 +674,7 @@ def _dimension_formation_studies_from_cached_master() -> dict:
         return {
             "available": False,
             "filename": filename,
-            "eligible_ids": set(),
-            "source_count": 0,
+            "sets": {},
             "issues": [f"Could not read cached PMM MASTER: {exc}"],
         }
 
@@ -677,36 +682,79 @@ def _dimension_formation_studies_from_cached_master() -> dict:
         return {
             "available": False,
             "filename": filename,
-            "eligible_ids": set(),
-            "source_count": 0,
+            "sets": {},
             "issues": issues,
         }
 
-    elig = frames.get("02_Capability_Eligibility", pd.DataFrame()).copy()
-    if elig.empty or "Study_ID" not in elig.columns or "Dimension_Formation_Decision" not in elig.columns:
-        return {
-            "available": False,
-            "filename": filename,
-            "eligible_ids": set(),
-            "source_count": 0,
-            "issues": ["02_Capability_Eligibility is missing the required eligibility fields."],
-        }
-
-    decision = elig["Dimension_Formation_Decision"].fillna("").astype(str).str.strip()
-    eligible_rows = elig.loc[decision.str.casefold().eq("eligible")].copy()
-    ids = set(_normalized_study_ids(eligible_rows["Study_ID"]))
-    ids.discard("")
-
-    src = frames.get("01_Source_Register", pd.DataFrame())
-    source_count = 0
+    # 1) All registered PMM studies.
+    src = frames.get("01_Source_Register", pd.DataFrame()).copy()
+    source_ids: set[str] = set()
     if not src.empty and "Study_ID" in src.columns:
-        source_count = int(_normalized_study_ids(src["Study_ID"]).replace("", pd.NA).dropna().nunique())
+        source_ids = set(_normalized_study_ids(src["Study_ID"]))
+        source_ids.discard("")
+
+    # 2) Any study whose dimension-formation decision begins with Eligible.
+    # Current workbooks intentionally carry qualified Eligible variants.
+    elig = frames.get("02_Capability_Eligibility", pd.DataFrame()).copy()
+    eligible_ids: set[str] = set()
+    if not elig.empty and {"Study_ID", "Dimension_Formation_Decision"}.issubset(elig.columns):
+        decision = elig["Dimension_Formation_Decision"].fillna("").astype(str).str.strip()
+        eligible_rows = elig.loc[decision.str.casefold().str.startswith("eligible")].copy()
+        eligible_ids = set(_normalized_study_ids(eligible_rows["Study_ID"]))
+        eligible_ids.discard("")
+
+    # 3) Studies that currently contribute mapped FOCs to clusters that sit inside
+    # current Themes supporting current Dimensions.
+    dimension_contributor_ids: set[str] = set()
+    dims = active_dimensions(frames)
+    themes = active_themes(frames)
+    mappings = current_mapping_rows(frames)
+
+    theme_to_clusters: dict[str, list[str]] = {}
+    if not themes.empty and "Theme_ID" in themes.columns:
+        for _, row in themes.iterrows():
+            tid = str(row.get("Theme_ID", "") or "").strip().upper()
+            if not tid:
+                continue
+            theme_to_clusters[tid] = split_ids(row.get("Included_Cluster_IDs"), "PCL")
+
+    dimension_theme_ids: list[str] = []
+    if not dims.empty:
+        for _, row in dims.iterrows():
+            dimension_theme_ids.extend(split_ids(row.get("Supporting_Theme_IDs"), "THM"))
+    dimension_theme_ids = list(dict.fromkeys(x.upper() for x in dimension_theme_ids))
+
+    dimension_cluster_ids: list[str] = []
+    for tid in dimension_theme_ids:
+        dimension_cluster_ids.extend(theme_to_clusters.get(tid, []))
+    dimension_cluster_ids = list(dict.fromkeys(x.upper() for x in dimension_cluster_ids))
+
+    if (
+        not mappings.empty
+        and "Cluster_ID" in mappings.columns
+        and "Study_ID" in mappings.columns
+        and dimension_cluster_ids
+    ):
+        mstatus = (
+            mappings["Mapping_Status"].fillna("").astype(str).str.strip()
+            if "Mapping_Status" in mappings.columns
+            else pd.Series("", index=mappings.index)
+        )
+        mm = mappings.loc[
+            mappings["Cluster_ID"].fillna("").astype(str).str.upper().isin(dimension_cluster_ids)
+            & mstatus.isin(["Stable", "Provisional"])
+        ].copy()
+        dimension_contributor_ids = set(_normalized_study_ids(mm["Study_ID"]))
+        dimension_contributor_ids.discard("")
 
     return {
         "available": True,
         "filename": filename,
-        "eligible_ids": ids,
-        "source_count": source_count,
+        "sets": {
+            "All PMM source-register studies": source_ids,
+            "Dimension-formation eligible studies": eligible_ids,
+            "Current dimension contributors": dimension_contributor_ids,
+        },
         "issues": [],
     }
 
@@ -725,7 +773,7 @@ def render_initial_vs_dimension_evidence(metrics: dict, persistence_enabled: boo
         )
         return
 
-    comparison = _dimension_formation_studies_from_cached_master()
+    comparison = _pm_master_study_sets_from_cache()
     if not comparison["available"]:
         st.info(
             "Load a valid PMM MASTER once in the PMM Visual Analytics module. "
@@ -742,20 +790,32 @@ def render_initial_vs_dimension_evidence(metrics: dict, persistence_enabled: boo
 
     screened["_Study_ID_Normalized"] = _normalized_study_ids(screened["Study ID"])
     screened = screened[screened["_Study_ID_Normalized"].ne("")].copy()
-    eligible_ids = comparison["eligible_ids"]
 
-    matched = screened[screened["_Study_ID_Normalized"].isin(eligible_ids)].copy()
+    available_sets = comparison.get("sets", {})
+    comparison_label = st.selectbox(
+        "PMM evidence set compared with the initial PRISMA corpus",
+        list(available_sets.keys()),
+        index=2 if "Current dimension contributors" in available_sets else 0,
+        key="prisma_pmm_evidence_set",
+        help=(
+            "Current dimension contributors is the strictest current-state definition: studies with Stable/Provisional "
+            "mapped FOCs inside clusters that support Themes assigned to current Dimensions."
+        ),
+    )
+    comparison_ids = available_sets.get(comparison_label, set())
+
+    matched = screened[screened["_Study_ID_Normalized"].isin(comparison_ids)].copy()
     screened_ids = set(screened["_Study_ID_Normalized"].tolist())
-    unmatched_master_ids = sorted(eligible_ids - screened_ids)
+    unmatched_master_ids = sorted(comparison_ids - screened_ids)
 
     screened_year = _valid_year_rows(screened)
     matched_year = _valid_year_rows(matched)
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Initial screened corpus", f"{screened['_Study_ID_Normalized'].nunique():,}")
-    c2.metric("Dimension-formation eligible in PMM MASTER", f"{len(eligible_ids):,}")
+    c2.metric(comparison_label, f"{len(comparison_ids):,}")
     c3.metric("Matched to PRISMA screened corpus", f"{matched['_Study_ID_Normalized'].nunique():,}")
-    c4.metric("Eligible IDs not matched", f"{len(unmatched_master_ids):,}")
+    c4.metric("Selected PMM IDs not matched", f"{len(unmatched_master_ids):,}")
 
     st.caption(f"PMM MASTER used: {comparison['filename']}")
 
@@ -780,7 +840,7 @@ def render_initial_vs_dimension_evidence(metrics: dict, persistence_enabled: boo
 
     if matched_year.empty:
         st.info(
-            "The PMM eligible studies were matched by Study ID, but none of the matched records has a usable publication year."
+            "The selected PMM study set was matched by Study ID, but none of the matched records has a usable publication year."
         )
         return
 
@@ -789,7 +849,7 @@ def render_initial_vs_dimension_evidence(metrics: dict, persistence_enabled: boo
         .size()
         .rename(columns={"_Publication_Year": "Year", "size": "Studies"})
     )
-    eligible_counts["Evidence base"] = "Dimension-formation eligible"
+    eligible_counts["Evidence base"] = comparison_label
 
     comparison_df = pd.concat([initial_counts, eligible_counts], ignore_index=True)
     comparison_df = comparison_df.sort_values(["Year", "Evidence base"])
@@ -800,7 +860,7 @@ def render_initial_vs_dimension_evidence(metrics: dict, persistence_enabled: boo
         y="Studies",
         color="Evidence base",
         barmode="group",
-        title="Initial screened corpus vs dimension-formation eligible studies by publication year",
+        title=f"Initial screened corpus vs {comparison_label.lower()} by publication year",
         labels={"Studies": "Number of records / studies"},
     )
     fig.update_layout(
@@ -822,29 +882,29 @@ def render_initial_vs_dimension_evidence(metrics: dict, persistence_enabled: boo
         retention_rows.append({
             "Year": int(year),
             "Initial screened": initial_n,
-            "Dimension-formation eligible": eligible_n,
-            "Eligible share of screened (%)": (eligible_n / initial_n * 100.0) if initial_n else 0.0,
+            comparison_label: eligible_n,
+            "Selected PMM share of screened (%)": (eligible_n / initial_n * 100.0) if initial_n else 0.0,
         })
 
     retention_df = pd.DataFrame(retention_rows)
     fig2 = px.line(
         retention_df,
         x="Year",
-        y="Eligible share of screened (%)",
+        y="Selected PMM share of screened (%)",
         markers=True,
-        title="Dimension-formation eligible share of the initial screened corpus by year",
+        title=f"{comparison_label} share of the initial screened corpus by year",
     )
     fig2.update_layout(
         xaxis=dict(dtick=1),
         xaxis_title="Publication year",
-        yaxis_title="Eligible share of screened (%)",
+        yaxis_title="Selected PMM share of screened (%)",
         margin=dict(l=20, r=20, t=55, b=20),
     )
     st.plotly_chart(fig2, use_container_width=True, key="prisma_dimension_retention_year")
 
     st.info(
-        "Interpretation: the blue/orange comparison shows how the broad initial literature landscape narrows "
-        "to the PMM studies judged eligible for dimension formation. This is a methodological selection profile, "
+        f"Interpretation: the comparison shows how the broad initial literature landscape relates to the selected "
+        f"PMM analytical evidence set: {comparison_label}. This is a methodological selection/traceability profile, "
         "not a quality ranking of publication years."
     )
 
