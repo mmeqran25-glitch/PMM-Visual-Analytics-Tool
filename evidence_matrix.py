@@ -219,7 +219,7 @@ def _matrix(
         p = p.reindex(columns=[c for c in col_order if c in p.columns])
 
     if mode == "Presence":
-        return p.applymap(lambda v: "●" if float(v) > 0 else "")
+        return p.gt(0).replace({True: "●", False: ""})
     return p.astype(int)
 
 
