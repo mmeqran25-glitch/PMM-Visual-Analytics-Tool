@@ -63,6 +63,7 @@ from researcher_cache import (
 from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import render_research_bi_dashboard
 from prisma_dashboard import render_prisma_dashboard
+from evidence_matrix import render_evidence_coverage_matrices
 import importlib
 import qualitative_visuals as qualitative_visuals_module
 
@@ -72,7 +73,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.15.5"
+APP_VERSION = "v0.16.0"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -1395,6 +1396,7 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
         "Qualitative Visuals",
         "SG2 Review",
         "Themes & Dimensions",
+        "Evidence Matrices",
         "Evidence Integrity",
         "Derivation Tree",
         "Traceability",
@@ -1420,6 +1422,8 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
         render_sg2_review(frames)
     elif section == "Themes & Dimensions":
         render_higher_order_review(frames)
+    elif section == "Evidence Matrices":
+        render_evidence_coverage_matrices(frames)
     elif section == "Evidence Integrity":
         render_evidence_integrity(frames)
     elif section == "Derivation Tree":
