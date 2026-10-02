@@ -17,7 +17,7 @@ from master_utils import (
     theme_cluster_map,
 )
 
-EVIDENCE_MATRIX_VERSION = "v0.16.1"
+EVIDENCE_MATRIX_VERSION = "v0.16.2"
 
 
 def _clean_text(value: Any) -> str:
@@ -759,6 +759,139 @@ def _diversity_table(rows: pd.DataFrame, group_col: str, label_col: str) -> pd.D
     return agg.sort_values(["Studies", "FOCs"], ascending=[False, False]).reset_index(drop=True)
 
 
+
+def _join_unique(values: pd.Series, limit: int = 8) -> str:
+    items = []
+    for value in values.dropna().astype(str):
+        text = value.strip()
+        if text and text not in items:
+            items.append(text)
+    if not items:
+        return ""
+    if len(items) <= limit:
+        return "; ".join(items)
+    return "; ".join(items[:limit]) + f"; … (+{len(items)-limit} more)"
+
+
+def build_dimension_evidence_synthesis(rows: pd.DataFrame, dimension_id: str) -> pd.DataFrame:
+    """Create a deterministic study-level synthesis table for one Candidate Dimension.
+
+    This mirrors the role of Mehri-style Tables 3/4: each reference is summarized by the
+    factors/contributions it brings to one higher-order domain. The summary is generated
+    only from current traceable PCL/FOC labels already present in the MASTER.
+    """
+    if rows.empty or "Dimension_ID" not in rows.columns or "Study_ID" not in rows.columns:
+        return pd.DataFrame()
+    x = rows[rows["Dimension_ID"].fillna("").astype(str).eq(str(dimension_id))].copy()
+    if x.empty:
+        return pd.DataFrame()
+
+    def first_nonblank(group: pd.DataFrame, candidates: list[str]) -> str:
+        for col in candidates:
+            if col in group.columns:
+                vals = group[col].dropna().astype(str).map(str.strip)
+                vals = vals[vals.ne("")]
+                if not vals.empty:
+                    return vals.iloc[0]
+        return ""
+
+    out_rows = []
+    for sid, g in x.groupby("Study_ID", sort=True):
+        authors = first_nonblank(g, ["Authors", "Author"])
+        year = first_nonblank(g, ["Year", "Publication_Year"])
+        title = first_nonblank(g, ["Title"])
+        reference = " — ".join([p for p in [str(sid), authors, year] if p])
+
+        pcls = _join_unique(g["Cluster_ID"]) if "Cluster_ID" in g.columns else ""
+        pcl_labels = _join_unique(g["Working_Cluster_Label"], limit=6) if "Working_Cluster_Label" in g.columns else ""
+        themes = _join_unique(g["Theme_ID"]) if "Theme_ID" in g.columns else ""
+        theme_labels = _join_unique(g["Working_Theme_Label"], limit=4) if "Working_Theme_Label" in g.columns else ""
+        focs = _join_unique(g["First_Order_Code"], limit=6) if "First_Order_Code" in g.columns else ""
+
+        out_rows.append({
+            "Study_ID": str(sid),
+            "Reference": reference,
+            "Title": title,
+            "Evidence_Family_ID": first_nonblank(g, ["Evidence_Family_ID"]),
+            "Themes": themes,
+            "Theme_Summary": theme_labels,
+            "PCLs": pcls,
+            "Factors_or_Contributions": pcl_labels or focs,
+            "FOC_Count": int(g["Code_ID"].nunique()) if "Code_ID" in g.columns else 0,
+            "PCL_Count": int(g["Cluster_ID"].nunique()) if "Cluster_ID" in g.columns else 0,
+            "Evidence_Count": int(g["Evidence_ID"].nunique()) if "Evidence_ID" in g.columns else len(g),
+        })
+    return pd.DataFrame(out_rows)
+
+
+def _render_dimension_synthesis_tab(frames: Dict[str, pd.DataFrame], rows: pd.DataFrame) -> None:
+    st.markdown("#### Dimension Evidence Synthesis — Tables 3/4 style")
+    st.caption(
+        "Study-level synthesis for one Candidate Dimension. Unlike the binary matrices, this view summarizes "
+        "what each study contributes using the current PCL/Theme labels already recorded in the MASTER."
+    )
+
+    dims = active_dimensions(frames)
+    if dims.empty:
+        st.info("No current Candidate Dimensions are available.")
+        return
+    labels = dict(zip(
+        dims["Dimension_ID"].astype(str),
+        dims.get("Candidate_Dimension_Name", pd.Series("", index=dims.index)).fillna("").astype(str),
+    ))
+    ids = dims["Dimension_ID"].astype(str).tolist()
+    did = st.selectbox(
+        "Candidate Dimension",
+        ids,
+        format_func=lambda x: f"{x} — {labels.get(x, '')}",
+        key="ecm_synthesis_dimension",
+    )
+
+    table = build_dimension_evidence_synthesis(rows, did)
+    if table.empty:
+        st.info("No current linked evidence is available for this Candidate Dimension under the selected filters.")
+        return
+
+    a, b, c, d = st.columns(4)
+    a.metric("Studies", int(table["Study_ID"].nunique()))
+    b.metric("Evidence families", int(table["Evidence_Family_ID"].replace("", pd.NA).nunique()))
+    b.caption("Explicit family metadata when available")
+    subset = rows[rows["Dimension_ID"].fillna("").astype(str).eq(did)].copy()
+    c.metric("PCLs", int(subset["Cluster_ID"].nunique()) if "Cluster_ID" in subset.columns else 0)
+    d.metric("FOCs", int(subset["Code_ID"].nunique()) if "Code_ID" in subset.columns else 0)
+
+    presentation = st.toggle(
+        "Compact presentation table",
+        value=True,
+        key="ecm_synthesis_compact",
+        help="Shows the two-column reference/factor format closest to Mehri Tables 3 and 4.",
+    )
+    if presentation:
+        shown = table[["Reference", "Factors_or_Contributions"]].rename(
+            columns={"Reference": "Reference", "Factors_or_Contributions": "Factors / contribution"}
+        )
+        st.dataframe(shown, use_container_width=True, hide_index=True, height=560)
+    else:
+        st.dataframe(table, use_container_width=True, hide_index=True, height=560)
+
+    _download_csv(
+        "Download Dimension Evidence Synthesis CSV",
+        table.set_index("Study_ID"),
+        f"PMM_{did}_Evidence_Synthesis.csv",
+        "ecm_download_dimension_synthesis",
+    )
+
+    st.markdown("##### Inspect one contributing study")
+    sid = st.selectbox(
+        "Study",
+        table["Study_ID"].astype(str).tolist(),
+        format_func=lambda x: table.loc[table["Study_ID"].astype(str).eq(x), "Reference"].iloc[0],
+        key="ecm_synthesis_study",
+    )
+    evidence = subset[subset["Study_ID"].astype(str).eq(sid)].copy()
+    _render_trace_details(frames, evidence, f"Why does {sid} contribute to {did}?")
+
+
 def _render_diversity_tab(rows: pd.DataFrame, family_available: bool, family_source: str) -> None:
     st.markdown(
         "Coverage breadth is descriptive only. More studies or more FOCs do not automatically make a Theme or Dimension "
@@ -856,6 +989,7 @@ def render_evidence_coverage_matrices(frames: Dict[str, pd.DataFrame]) -> None:
         "PCL × Theme Boundary",
         "Evidence Diversity",
         "Mehri-style Literature Matrix",
+        "Dimension Evidence Synthesis",
     ])
     with tabs[0]:
         _render_study_theme_tab(frames, filtered, mode, use_families and family_available, min_support)
@@ -867,3 +1001,5 @@ def render_evidence_coverage_matrices(frames: Dict[str, pd.DataFrame]) -> None:
         _render_diversity_tab(filtered, family_available, family_source)
     with tabs[4]:
         _render_mehri_style_tab(frames, filtered, use_families and family_available, min_support)
+    with tabs[5]:
+        _render_dimension_synthesis_tab(frames, filtered)
