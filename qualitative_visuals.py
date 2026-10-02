@@ -16,7 +16,7 @@ from wordcloud import STOPWORDS, WordCloud
 
 from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids)
 
-QUAL_VIS_VERSION = "v0.14.3"
+QUAL_VIS_VERSION = "v0.15.4"
 
 PLOT_CONFIG = {
     "displaylogo": False,
@@ -941,15 +941,15 @@ def build_audit_trail_events(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         )
         title_col = _first_existing_column(
             log,
-            ["Decision_Title", "Decision_Label", "Title", "Action", "Decision_Type"],
+            ["Decision", "Decision_Title", "Decision_Label", "Title", "Action", "Decision_Type"],
         )
         summary_col = _first_existing_column(
             log,
-            ["Decision_Summary", "Summary", "Decision_Description", "Description", "Change_Description"],
+            ["Impact_on_Analysis", "Decision_Summary", "Summary", "Decision_Description", "Description", "Change_Description"],
         )
         rationale_col = _first_existing_column(
             log,
-            ["Decision_Rationale", "Rationale", "Audit_Rationale", "Notes", "Decision_Notes"],
+            ["Reason", "Decision_Rationale", "Rationale", "Audit_Rationale", "Notes", "Decision_Notes"],
         )
         stage_col = _first_existing_column(
             log,
@@ -1129,6 +1129,311 @@ def build_audit_timeline_figure(events: pd.DataFrame) -> go.Figure:
     return fig
 
 
+
+def _evolution_level(row: pd.Series) -> str:
+    blob = " ".join(
+        _txt(row.get(c))
+        for c in [
+            "Stage", "Decision", "Reason", "Affected_Sheets_or_Fields",
+            "Impact_on_Analysis", "Status", "Notes",
+        ]
+        if c in row.index
+    ).lower()
+
+    has_sg2 = bool(re.search(r"\bsg2\b|foc|first[- ]order|mapping|reassign|re-home|rehome|pcl", blob))
+    has_sg3 = bool(re.search(r"\bsg3\b|theme|cluster[- ]to[- ]theme|cross-theme|dissolution", blob))
+    has_sg4 = bool(re.search(r"\bsg4\b|dimension|candidate dimension|cross-dimension|higher-order", blob))
+
+    levels = [has_sg2, has_sg3, has_sg4]
+    if sum(levels) > 1:
+        return "Cross-level / system"
+    if has_sg4:
+        return "Theme → Dimension"
+    if has_sg3:
+        return "PCL → Theme"
+    if has_sg2:
+        return "FOC → PCL"
+    return "System / other"
+
+
+def build_analytical_evolution_story(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Create a presentation-ready evolution story from the decision log."""
+    log = frames.get("11_Decision_Log", pd.DataFrame()).copy()
+    if log.empty:
+        return pd.DataFrame(columns=[
+            "Decision_ID", "DEC_Sequence", "Date", "Level", "Event_Type",
+            "Decision", "Problem_or_Reason", "Result_or_Impact",
+            "Affected_Entities", "Status",
+        ])
+
+    rows = []
+    for pos, (_, r) in enumerate(log.iterrows(), start=1):
+        did = _txt(r.get("Decision_ID")) or f"ROW-{pos}"
+        decision = _txt(r.get("Decision"))
+        reason = _txt(r.get("Reason"))
+        impact = _txt(r.get("Impact_on_Analysis"))
+        affected = _txt(r.get("Affected_Sheets_or_Fields"))
+        status = _txt(r.get("Status"))
+        notes = _txt(r.get("Notes"))
+        stage = _txt(r.get("Stage"))
+        full_text = " ".join([did, stage, decision, reason, affected, impact, status, notes])
+        raw_date = _txt(r.get("Date"))
+        parsed_date = pd.to_datetime(raw_date, errors="coerce") if raw_date else pd.NaT
+        rows.append({
+            "Decision_ID": did,
+            "DEC_Sequence": _decision_sequence(did, pos),
+            "Date": parsed_date,
+            "Level": _evolution_level(r),
+            "Event_Type": _decision_event_type(full_text),
+            "Decision": decision,
+            "Problem_or_Reason": reason,
+            "Result_or_Impact": impact,
+            "Affected_Entities": _decision_entities(full_text),
+            "Affected_Sheets_or_Fields": affected,
+            "Status": status,
+            "Notes": notes,
+        })
+
+    out = pd.DataFrame(rows)
+    # Focus this story on analytical evolution rather than routine study closures.
+    evolution_mask = out["Event_Type"].isin([
+        "Reassignment", "Split", "Merge", "Retirement / Withdrawal",
+        "Boundary Review", "Rename", "Creation / Addition", "Audit / Review",
+    ])
+    evolution_mask |= out["Decision"].fillna("").astype(str).str.contains(
+        r"reassign|re-home|rehome|split|merge|retir|dissol|boundary|reconstruct|re-deriv|restart|stabili|cross-theme|cross-dimension",
+        case=False, regex=True, na=False,
+    )
+    return out.loc[evolution_mask].sort_values(["DEC_Sequence", "Decision_ID"]).reset_index(drop=True)
+
+
+def build_exact_foc_reassignment_history(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Find exact FOC before/after mapping histories retained as multiple rows."""
+    maps = frames.get("06_DeNovo_Clustering", pd.DataFrame()).copy()
+    if maps.empty or "Code_ID" not in maps.columns:
+        return pd.DataFrame()
+
+    maps = maps[maps["Code_ID"].notna()].copy()
+    maps["Code_ID"] = maps["Code_ID"].astype(str).str.strip()
+    counts = maps["Code_ID"].value_counts()
+    repeated = set(counts[counts > 1].index)
+    rows = []
+
+    for code_id in sorted(repeated):
+        g = maps[maps["Code_ID"].eq(code_id)].copy()
+        if "Mapping_Status" not in g.columns:
+            continue
+        status = g["Mapping_Status"].fillna("").astype(str)
+        historical = g[
+            status.str.contains(r"Withdrawn|Retired|Reassigned|Historical|Superseded", case=False, regex=True, na=False)
+        ]
+        current = g[
+            status.str.strip().isin(["Stable", "Provisional", "Challenged"])
+        ]
+        if historical.empty or current.empty:
+            continue
+
+        for _, old in historical.iterrows():
+            for _, new in current.iterrows():
+                rows.append({
+                    "Code_ID": code_id,
+                    "Study_ID": _txt(new.get("Study_ID")) or _txt(old.get("Study_ID")),
+                    "First_Order_Code": _txt(new.get("First_Order_Code")) or _txt(old.get("First_Order_Code")),
+                    "Before_PCL": _txt(old.get("Cluster_ID")),
+                    "Before_Label": _txt(old.get("Working_Cluster_Label")),
+                    "Before_Status": _txt(old.get("Mapping_Status")),
+                    "After_PCL": _txt(new.get("Cluster_ID")),
+                    "After_Label": _txt(new.get("Working_Cluster_Label")),
+                    "After_Status": _txt(new.get("Mapping_Status")),
+                    "Why_Changed": _txt(new.get("Boundary_Rationale")) or _txt(new.get("Mapping_Rationale")),
+                    "Competing_Cluster": _txt(new.get("Closest_Competing_Cluster")),
+                    "Audit_Notes": _txt(new.get("Notes")),
+                })
+    return pd.DataFrame(rows)
+
+
+def build_dimension_generation_history(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Return named DIM rows that preserve historical/current SG4 generations."""
+    dims = frames.get("08_Candidate_Dimensions", pd.DataFrame()).copy()
+    if dims.empty or "Dimension_ID" not in dims.columns:
+        return pd.DataFrame()
+    ids = dims["Dimension_ID"].fillna("").astype(str).str.strip()
+    x = dims[ids.str.match(r"^DIM-\d{3}$", case=False, na=False)].copy()
+    if x.empty:
+        return x
+    cols = [
+        c for c in [
+            "Dimension_ID", "Candidate_Dimension_Name", "Supporting_Theme_IDs",
+            "Underlying_Cluster_IDs", "Dimension_Status", "Review_Date", "Notes", "Audit_Notes"
+        ] if c in x.columns
+    ]
+    return x[cols].copy()
+
+
+def render_analytical_evolution_story(frames: Dict[str, pd.DataFrame]) -> None:
+    st.markdown("### Analytical Evolution Story")
+    st.caption(
+        "A supervisor-facing narrative of how assignments and higher-order structure were tested, challenged, "
+        "corrected and stabilised from First-Order Codes to Candidate Dimensions."
+    )
+    st.info(
+        "Interpretation safeguard: revisions are shown as evidence of constant comparison and boundary testing. "
+        "The view distinguishes documented corrections from the current final assignment and does not treat every revision as an error."
+    )
+
+    story = build_analytical_evolution_story(frames)
+    exact = build_exact_foc_reassignment_history(frames)
+    dim_hist = build_dimension_generation_history(frames)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Evolution decisions", len(story))
+    c2.metric("FOC→PCL decisions", int((story["Level"] == "FOC → PCL").sum()) if not story.empty else 0)
+    c3.metric("PCL→Theme decisions", int((story["Level"] == "PCL → Theme").sum()) if not story.empty else 0)
+    c4.metric("Theme→Dimension decisions", int((story["Level"] == "Theme → Dimension").sum()) if not story.empty else 0)
+
+    level_options = [
+        "All levels", "FOC → PCL", "PCL → Theme", "Theme → Dimension",
+        "Cross-level / system", "System / other",
+    ]
+    selected_level = st.selectbox(
+        "Analytical level",
+        level_options,
+        key="evolution_story_level",
+    )
+
+    shown = story.copy()
+    if selected_level != "All levels":
+        shown = shown[shown["Level"].eq(selected_level)].copy()
+
+    if shown.empty:
+        st.info("No documented evolution decisions are available for the selected level.")
+    else:
+        event_types = shown["Event_Type"].drop_duplicates().tolist()
+        selected_types = st.multiselect(
+            "Change types",
+            event_types,
+            default=event_types,
+            key="evolution_story_types",
+        )
+        shown = shown[shown["Event_Type"].isin(selected_types)].copy()
+
+        st.markdown("#### Evolution timeline")
+        timeline = shown.copy()
+        timeline["Story_Label"] = timeline["Level"] + " · " + timeline["Event_Type"]
+        fig = go.Figure()
+        for label in timeline["Story_Label"].drop_duplicates():
+            part = timeline[timeline["Story_Label"].eq(label)]
+            fig.add_trace(go.Scatter(
+                x=part["DEC_Sequence"],
+                y=[label] * len(part),
+                mode="markers+text",
+                text=part["Decision_ID"],
+                textposition="top center",
+                hovertext=[
+                    f"{_txt(r.get('Decision_ID'))}<br>"
+                    f"{_txt(r.get('Decision'))}<br>"
+                    f"Why: {_short(r.get('Problem_or_Reason'), 220)}<br>"
+                    f"After: {_short(r.get('Result_or_Impact'), 220)}"
+                    for _, r in part.iterrows()
+                ],
+                hoverinfo="text",
+                name=label,
+                marker=dict(size=12),
+            ))
+        fig.update_layout(
+            title="Analytical evolution across FOC → PCL → Theme → Dimension",
+            xaxis_title="DEC sequence (analytical chronology)",
+            yaxis_title="",
+            height=max(520, min(1000, 65 * timeline["Story_Label"].nunique() + 260)),
+            margin=dict(l=20, r=20, t=70, b=50),
+            hovermode="closest",
+        )
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={
+                **PLOT_CONFIG,
+                "toImageButtonOptions": {
+                    **PLOT_CONFIG["toImageButtonOptions"],
+                    "filename": "PMM_Analytical_Evolution_Story",
+                },
+            },
+        )
+
+        st.markdown("#### Before → problem → decision → after")
+        display_n = st.slider(
+            "Number of decision stories shown",
+            min_value=3,
+            max_value=min(30, max(3, len(shown))),
+            value=min(10, max(3, len(shown))),
+            key="evolution_story_n",
+        )
+        for _, r in shown.sort_values("DEC_Sequence", ascending=False).head(display_n).iterrows():
+            title = f"{_txt(r.get('Decision_ID'))} · {_txt(r.get('Level'))} · {_txt(r.get('Event_Type'))}"
+            with st.expander(title, expanded=False):
+                a, b = st.columns(2)
+                with a:
+                    st.markdown("**Problem / why the previous state was questioned**")
+                    st.write(_txt(r.get("Problem_or_Reason")) or "Not explicitly recorded.")
+                    st.markdown("**Decision / correction**")
+                    st.write(_txt(r.get("Decision")) or "Not explicitly recorded.")
+                with b:
+                    st.markdown("**Result / analytical impact**")
+                    st.write(_txt(r.get("Result_or_Impact")) or "Not explicitly recorded.")
+                    st.markdown("**Affected entities / fields**")
+                    st.write(_txt(r.get("Affected_Entities")) or _txt(r.get("Affected_Sheets_or_Fields")) or "Not explicitly recorded.")
+                if _txt(r.get("Status")):
+                    st.caption(f"Status: {_txt(r.get('Status'))}")
+
+    st.markdown("---")
+    st.markdown("#### Exact retained FOC → PCL before/after histories")
+    if exact.empty:
+        st.info(
+            "No FOC has both a retained historical mapping row and a current mapping row in this MASTER. "
+            "Broader reassignment history is still available from the Decision Log above."
+        )
+    else:
+        st.dataframe(
+            exact,
+            use_container_width=True,
+            hide_index=True,
+            height=min(520, 95 + 72 * len(exact)),
+        )
+        st.caption(
+            "These are exact row-level before/after cases preserved in 06_DeNovo_Clustering, not inferred from narrative text."
+        )
+
+    st.markdown("---")
+    st.markdown("#### SG4 generation / dimension-history view")
+    if dim_hist.empty:
+        st.info("No retained Candidate Dimension history rows were found.")
+    else:
+        status = dim_hist.get("Dimension_Status", pd.Series("", index=dim_hist.index)).fillna("").astype(str)
+        history_mask = status.str.contains(
+            r"Historical|Superseded|Suspended|Merged|Stable",
+            case=False, regex=True, na=False,
+        )
+        historical_dims = dim_hist[history_mask].copy()
+        st.dataframe(
+            historical_dims if not historical_dims.empty else dim_hist,
+            use_container_width=True,
+            hide_index=True,
+            height=520,
+        )
+        st.caption(
+            "This table shows retained SG4 generations, including superseded/suspended candidates, stable current constructs, "
+            "and merged historical subdomains such as those created under DEC-498."
+        )
+
+    st.download_button(
+        "Download analytical evolution story (CSV)",
+        story.to_csv(index=False).encode("utf-8-sig"),
+        "PMM_Analytical_Evolution_Story.csv",
+        "text/csv",
+        use_container_width=True,
+    )
+
+
 def render_audit_trail_timeline(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown("### Audit-Trail Timeline")
     st.caption(
@@ -1292,7 +1597,7 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
 
     visual = st.radio(
         "Qualitative visual",
-        ["Analytical Sankey", "Theme Boundary Cards", "Negative / Deviant Cases", "ENTREQ Reporting Audit", "Audit-Trail Timeline", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
+        ["Analytical Sankey", "Analytical Evolution Story", "Theme Boundary Cards", "Negative / Deviant Cases", "ENTREQ Reporting Audit", "Audit-Trail Timeline", "Theme × Study Heatmap", "Theme Co-occurrence Network", "Word Cloud"],
         horizontal=True, key="qualitative_visual_choice"
     )
     st.divider()
@@ -1344,6 +1649,9 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
                 "to its supporting Themes and PCL/Clusters. Link widths represent currently mapped First-Order Codes."
             )
             st.info("Interpret this as an analytical derivation structure, not as a causal model.")
+
+    elif visual == "Analytical Evolution Story":
+        render_analytical_evolution_story(frames)
 
     elif visual == "Theme Boundary Cards":
         render_theme_boundary_cards(frames)
