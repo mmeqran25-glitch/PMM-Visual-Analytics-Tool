@@ -1365,6 +1365,332 @@ def render_gaps_integrity_bi(frames: Dict[str, pd.DataFrame]) -> None:
             st.dataframe(checks,use_container_width=True,hide_index=True,height=460)
 
 
+
+def _evidence_intelligence_table(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    if ev.empty:
+        return ev
+
+    for col in ["Evidence_ID","Study_ID","Meaning_Unit_Verbatim","Context_Verbatim",
+                "Original_Author_Term","Author_Parent_Construct","Author_Defined_Relationship",
+                "Evidence_Form","Conceptual_Role","Evidence_Origin",
+                "PM_Practice_Maturity_Evidence_Gate","Gate_Rationale","Explicitness",
+                "Direction","Source_Fidelity_Status","Source_Verification_Date",
+                "Reviewer","Analyst_Memo","Split_Parent_Evidence_ID","Printed_Page",
+                "PDF_Page_if_Different","Section_or_Item","Source_Component","Meaning_Unit_Status",
+                "Atomicity_Status"]:
+        if col not in ev.columns:
+            ev[col] = ""
+
+    ev["_Gate_Group"] = (
+        ev["PM_Practice_Maturity_Evidence_Gate"].fillna("").astype(str).str.strip()
+        .replace({"":"Unspecified"})
+    )
+
+    def direction_group(v):
+        t=_text(v).lower()
+        if not t:
+            return "Unspecified"
+        if any(x in t for x in ["negative","gap","failure","absence","weakness","deficien"]):
+            return "Negative / Gap"
+        if any(x in t for x in ["positive","enabling","mature","practice present"]):
+            return "Positive / Enabling"
+        if any(x in t for x in ["mixed","boundary","ambivalent"]):
+            return "Mixed / Boundary"
+        if any(x in t for x in ["neutral","architecture","progression"]):
+            return "Neutral / Architecture"
+        return "Other"
+
+    ev["_Direction_Group"] = ev["Direction"].map(direction_group)
+
+    def form_group(v):
+        t=_text(v).lower()
+        if not t:
+            return "Unspecified"
+        if "questionnaire" in t or "survey item" in t:
+            return "Questionnaire / Item"
+        if "indicator" in t or "operational" in t:
+            return "Indicator / Operationalisation"
+        if "maturity" in t and "criterion" in t:
+            return "Maturity Criterion"
+        if any(x in t for x in ["practice","capability"]):
+            return "Practice / Capability"
+        if any(x in t for x in ["gap","failure","deficien"]):
+            return "Gap / Failure"
+        if any(x in t for x in ["architecture","progression","level logic"]):
+            return "Architecture / Progression"
+        if "interview" in t or "focus group" in t or "theme" in t:
+            return "Qualitative Finding"
+        return "Other"
+
+    ev["_Form_Group"] = ev["Evidence_Form"].map(form_group)
+
+    def origin_group(v):
+        t=_text(v).lower()
+        if not t:
+            return "Unspecified"
+        if any(x in t for x in ["professional standard","standard","professional framework"]):
+            return "Professional / Standard"
+        if any(x in t for x in ["questionnaire","instrument","scale"]):
+            return "Instrument / Measurement"
+        if any(x in t for x in ["interview","focus group","empirical","case","survey"]):
+            return "Empirical"
+        if any(x in t for x in ["model development","framework development","conceptual"]):
+            return "Model / Conceptual"
+        if any(x in t for x in ["literature-derived","review"]):
+            return "Literature-derived / Review"
+        return "Other"
+
+    ev["_Origin_Group"] = ev["Evidence_Origin"].map(origin_group)
+    return ev
+
+
+def _evidence_traceability_row(frames: Dict[str, pd.DataFrame], evidence_id: str) -> dict:
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    codes = frames.get("05_First_Order_Coding", pd.DataFrame()).copy()
+    maps = current_mapping_rows(frames)
+    themes = active_themes(frames)
+    dims = active_dimensions(frames)
+
+    out = {
+        "evidence": None,
+        "codes": pd.DataFrame(),
+        "mappings": pd.DataFrame(),
+        "theme_rows": pd.DataFrame(),
+        "dimension_rows": pd.DataFrame(),
+    }
+    if ev.empty or "Evidence_ID" not in ev.columns:
+        return out
+
+    hit = ev[ev["Evidence_ID"].astype(str).str.strip().eq(str(evidence_id).strip())]
+    if hit.empty:
+        return out
+    out["evidence"] = hit.iloc[0].to_dict()
+
+    if not codes.empty and "Evidence_ID" in codes.columns:
+        c = codes[codes["Evidence_ID"].astype(str).str.strip().eq(str(evidence_id).strip())].copy()
+        out["codes"] = c
+    else:
+        c = pd.DataFrame()
+
+    if not c.empty and not maps.empty and "Code_ID" in maps.columns:
+        mids = set(c["Code_ID"].dropna().astype(str).str.strip())
+        m = maps[maps["Code_ID"].astype(str).str.strip().isin(mids)].copy()
+        out["mappings"] = m
+    else:
+        m = pd.DataFrame()
+
+    cluster_ids = set()
+    if not m.empty and "Cluster_ID" in m.columns:
+        cluster_ids = set(
+            m["Cluster_ID"].dropna().astype(str).str.strip()
+        )
+        cluster_ids.discard("")
+
+    theme_rows=[]
+    if cluster_ids and not themes.empty:
+        for _,r in themes.iterrows():
+            tids = re.findall(r"\bPCL-\d{3}\b", _text(r.get("Included_Cluster_IDs")), flags=re.I)
+            if any(x.upper() in {c.upper() for c in cluster_ids} for x in tids):
+                theme_rows.append(r.to_dict())
+    out["theme_rows"] = pd.DataFrame(theme_rows)
+
+    theme_ids=set()
+    if not out["theme_rows"].empty and "Theme_ID" in out["theme_rows"].columns:
+        theme_ids=set(out["theme_rows"]["Theme_ID"].dropna().astype(str).str.strip())
+
+    dim_rows=[]
+    if theme_ids and not dims.empty:
+        for _,r in dims.iterrows():
+            tids = re.findall(r"\bTHM-\d{3}\b", _text(r.get("Supporting_Theme_IDs")), flags=re.I)
+            if any(x.upper() in {t.upper() for t in theme_ids} for x in tids):
+                dim_rows.append(r.to_dict())
+    out["dimension_rows"] = pd.DataFrame(dim_rows)
+    return out
+
+
+def render_evidence_intelligence(frames: Dict[str, pd.DataFrame]) -> None:
+    st.subheader("Evidence Intelligence")
+    st.caption(
+        "Evidence-level analytics derived directly from 04_Verbatim_Evidence. "
+        "This page shows what kinds of evidence entered the analysis, how each record was gated and verified, "
+        "and how a selected evidence record traces forward into the current analytical structure."
+    )
+
+    ev=_evidence_intelligence_table(frames)
+    if ev.empty:
+        st.info("04_Verbatim_Evidence is empty or unavailable.")
+        return
+
+    total=len(ev)
+    studies=int(ev["Study_ID"].fillna("").astype(str).str.strip().replace("",pd.NA).dropna().nunique())
+    pass_n=int(ev["_Gate_Group"].str.casefold().eq("pass").sum())
+    supporting_n=int(ev["_Gate_Group"].str.contains("Supporting",case=False,na=False).sum())
+    split_n=int(ev["Split_Parent_Evidence_ID"].fillna("").astype(str).str.strip().ne("").sum())
+    verified_n=int(ev["Source_Fidelity_Status"].fillna("").astype(str).str.strip().ne("").sum())
+
+    k1,k2,k3,k4,k5,k6=st.columns(6)
+    k1.metric("Evidence records",f"{total:,}")
+    k2.metric("Studies represented",f"{studies:,}")
+    k3.metric("Pass evidence",f"{pass_n:,}")
+    k4.metric("Supporting only",f"{supporting_n:,}")
+    k5.metric("Split-derived records",f"{split_n:,}")
+    k6.metric("Fidelity-status recorded",f"{verified_n:,}")
+
+    st.markdown("#### Evidence profile")
+    a,b=st.columns(2)
+    with a:
+        gate=ev["_Gate_Group"].value_counts().rename_axis("Gate").reset_index(name="Records")
+        fig=px.bar(gate.sort_values("Records"),x="Records",y="Gate",orientation="h",title="Evidence analytical gate")
+        fig.update_yaxes(title="")
+        fig.update_layout(height=360)
+        st.plotly_chart(fig,use_container_width=True)
+    with b:
+        direction=ev["_Direction_Group"].value_counts().rename_axis("Direction").reset_index(name="Records")
+        fig=px.bar(direction.sort_values("Records"),x="Records",y="Direction",orientation="h",title="Evidence direction")
+        fig.update_yaxes(title="")
+        fig.update_layout(height=360)
+        st.plotly_chart(fig,use_container_width=True)
+
+    c,d=st.columns(2)
+    with c:
+        form=ev["_Form_Group"].value_counts().rename_axis("Evidence form").reset_index(name="Records")
+        fig=px.bar(form.sort_values("Records"),x="Records",y="Evidence form",orientation="h",title="Evidence form profile")
+        fig.update_yaxes(title="")
+        fig.update_layout(height=420)
+        st.plotly_chart(fig,use_container_width=True)
+    with d:
+        origin=ev["_Origin_Group"].value_counts().rename_axis("Evidence origin").reset_index(name="Records")
+        fig=px.bar(origin.sort_values("Records"),x="Records",y="Evidence origin",orientation="h",title="Evidence provenance profile")
+        fig.update_yaxes(title="")
+        fig.update_layout(height=420)
+        st.plotly_chart(fig,use_container_width=True)
+
+    st.markdown("#### Evidence verification and auditability")
+    v1,v2=st.columns(2)
+    with v1:
+        fidelity=(
+            ev["Source_Fidelity_Status"].fillna("").astype(str).str.strip()
+            .replace("","Unspecified").value_counts()
+            .rename_axis("Fidelity status").reset_index(name="Records")
+        )
+        fig=px.bar(fidelity.sort_values("Records"),x="Records",y="Fidelity status",orientation="h",title="Source-fidelity status")
+        fig.update_yaxes(title="")
+        fig.update_layout(height=360)
+        st.plotly_chart(fig,use_container_width=True)
+    with v2:
+        dates=pd.to_datetime(ev["Source_Verification_Date"],errors="coerce")
+        timeline=(
+            pd.DataFrame({"Date":dates})
+            .dropna()
+            .groupby("Date").size().reset_index(name="Verified records")
+            .sort_values("Date")
+        )
+        if not timeline.empty:
+            timeline["Cumulative verified"]=timeline["Verified records"].cumsum()
+            fig=px.line(timeline,x="Date",y="Cumulative verified",markers=True,title="Cumulative source verification")
+            fig.update_layout(height=360)
+            st.plotly_chart(fig,use_container_width=True)
+        else:
+            st.info("No usable source verification dates were found.")
+
+    st.markdown("#### Study contribution at evidence level")
+    study=(
+        ev.groupby("Study_ID").agg(
+            Total_Evidence=("Evidence_ID","nunique"),
+            Pass_Evidence=("_Gate_Group",lambda x:int(x.astype(str).str.casefold().eq("pass").sum())),
+            Supporting_Only=("_Gate_Group",lambda x:int(x.astype(str).str.contains("Supporting",case=False,na=False).sum())),
+            Split_Derived=("Split_Parent_Evidence_ID",lambda x:int(x.fillna("").astype(str).str.strip().ne("").sum())),
+        ).reset_index()
+    )
+    top=study.sort_values(["Pass_Evidence","Total_Evidence"],ascending=False).head(20)
+    if not top.empty:
+        fig=px.bar(
+            top.sort_values("Pass_Evidence"),
+            x="Pass_Evidence",y="Study_ID",orientation="h",
+            hover_data=["Total_Evidence","Supporting_Only","Split_Derived"],
+            title="Top studies by Pass evidence contribution",
+        )
+        fig.update_yaxes(title="")
+        fig.update_layout(height=560)
+        st.plotly_chart(fig,use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("#### Evidence → FOC → PCL → Theme → Dimension traceability explorer")
+    ids=sorted(ev["Evidence_ID"].dropna().astype(str).str.strip().replace("",pd.NA).dropna().unique().tolist())
+    default_idx=0
+    selected=st.selectbox(
+        "Evidence ID",
+        ids,
+        index=default_idx,
+        key="bi_evidence_trace_id",
+        help="Select any evidence record to inspect how it traces forward through the current analytical structure.",
+    )
+    tr=_evidence_traceability_row(frames,selected)
+    e=tr["evidence"]
+    if e is None:
+        st.info("The selected evidence record could not be resolved.")
+        return
+
+    st.markdown("##### Source-grounded evidence")
+    x1,x2,x3=st.columns(3)
+    x1.write(f"**Study:** {_text(e.get('Study_ID'))}")
+    x1.write(f"**Page:** {_text(e.get('Printed_Page'))}")
+    x1.write(f"**Section / item:** {_text(e.get('Section_or_Item'))}")
+    x2.write(f"**Author term:** {_text(e.get('Original_Author_Term'))}")
+    x2.write(f"**Parent construct:** {_text(e.get('Author_Parent_Construct'))}")
+    x2.write(f"**Author relationship:** {_text(e.get('Author_Defined_Relationship'))}")
+    x3.write(f"**Gate:** {_text(e.get('PM_Practice_Maturity_Evidence_Gate'))}")
+    x3.write(f"**Atomicity:** {_text(e.get('Atomicity_Status'))}")
+    x3.write(f"**Fidelity:** {_text(e.get('Source_Fidelity_Status'))}")
+
+    st.markdown("**Meaning Unit Verbatim**")
+    st.info(_text(e.get("Meaning_Unit_Verbatim")) or "Not recorded.")
+    if _text(e.get("Context_Verbatim")):
+        with st.expander("Context Verbatim"):
+            st.write(_text(e.get("Context_Verbatim")))
+    if _text(e.get("Gate_Rationale")):
+        st.markdown("**Gate rationale**")
+        st.write(_text(e.get("Gate_Rationale")))
+    if _text(e.get("Analyst_Memo")):
+        with st.expander("Analyst memo"):
+            st.write(_text(e.get("Analyst_Memo")))
+
+    st.markdown("##### Forward trace")
+    codes=tr["codes"]
+    maps=tr["mappings"]
+    th=tr["theme_rows"]
+    dm=tr["dimension_rows"]
+
+    c1,c2,c3,c4=st.columns(4)
+    c1.metric("FOCs",len(codes))
+    c2.metric("Current PCL mappings",len(maps))
+    c3.metric("Current Themes",len(th))
+    c4.metric("Current Dimensions",len(dm))
+
+    if not codes.empty:
+        cols=[c for c in ["Code_ID","First_Order_Code","Code_Fidelity_Status","Source_to_Code_Rationale"] if c in codes.columns]
+        st.markdown("**First-Order Code(s)**")
+        st.dataframe(codes[cols],use_container_width=True,hide_index=True)
+    if not maps.empty:
+        cols=[c for c in ["Code_ID","Cluster_ID","Working_Cluster_Label","Mapping_Status","Mapping_Rationale","Boundary_Rationale"] if c in maps.columns]
+        st.markdown("**PCL mapping(s)**")
+        st.dataframe(maps[cols],use_container_width=True,hide_index=True)
+    if not th.empty:
+        cols=[c for c in ["Theme_ID","Working_Theme_Label","Theme_Status"] if c in th.columns]
+        st.markdown("**Theme(s)**")
+        st.dataframe(th[cols],use_container_width=True,hide_index=True)
+    if not dm.empty:
+        cols=[c for c in ["Dimension_ID","Candidate_Dimension_Name","Dimension_Status"] if c in dm.columns]
+        st.markdown("**Dimension(s)**")
+        st.dataframe(dm[cols],use_container_width=True,hide_index=True)
+
+    st.info(
+        "Interpretation: this explorer is intended for auditability. It allows a supervisor to select an evidence record "
+        "and inspect how—or whether—it contributes to the current higher-order analytical structure."
+    )
+
+
 def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown(
         '<div class="note-banner"><b>Research Evidence BI Dashboard:</b> '
@@ -1384,6 +1710,7 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
         [
             "Supervisor Overview",
             "Evidence Base",
+            "Evidence Intelligence",
             "Dimension Support",
             "Stability & Revisions",
             "Gaps & Integrity",
@@ -1402,6 +1729,8 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
         render_time_context(filtered)
         st.divider()
         render_evidence_quality(filtered, frames)
+    elif page == "Evidence Intelligence":
+        render_evidence_intelligence(frames)
     elif page == "Dimension Support":
         render_dimension_support_bi(frames)
     elif page == "Stability & Revisions":
