@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.8-bi"
+BI_DASH_VERSION = "v0.16.9-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -1221,7 +1221,7 @@ def render_supervisor_bi_overview(filtered: pd.DataFrame, full_catalog: pd.DataF
         "These counts represent different analytical units. The chain is a traceability progression, not a claim that each stage is a simple one-to-one filter."
     )
 
-    st.markdown("#### Corpus shape and dimension support")
+    st.markdown("#### Corpus shape and literature-reported PMM architecture")
     left,right = st.columns(2)
     with left:
         year_df = filtered.dropna(subset=["Year"]).copy()
@@ -1246,17 +1246,49 @@ def render_supervisor_bi_overview(filtered: pd.DataFrame, full_catalog: pd.DataF
             )
             st.plotly_chart(fig,use_container_width=True)
     with right:
-        support = _dimension_support_table(frames)
-        if not support.empty:
-            fig = px.bar(
-                support.sort_values("Studies"),
-                x="Studies",y="Dimension",orientation="h",
-                hover_data=["Dimension_ID","FOCs","PCLs","Themes","Countries","Sectors"],
-                title="Current dimensions by number of supporting studies",
+        reported = build_reported_author_groupings(frames)
+        if not reported.empty:
+            lit = reported.copy()
+            lit["Reported_Group_Name"] = lit["Reported_Group_Name"].fillna("").astype(str).str.strip()
+            lit["Study_ID"] = lit["Study_ID"].fillna("").astype(str).str.strip()
+            lit = lit[lit["Reported_Group_Name"].ne("") & lit["Study_ID"].ne("")].copy()
+
+            # Literature-only view: count exact author-reported construct names.
+            # No synonym merging or mapping to our derived PCL/Theme/Dimension system.
+            lit["_name_key"] = lit["Reported_Group_Name"].str.casefold()
+            canon = (
+                lit.sort_values(["_name_key","Study_ID"])
+                .drop_duplicates(subset=["_name_key"], keep="first")
+                [["_name_key","Reported_Group_Name"]]
             )
-            fig.update_yaxes(title="")
-            fig.update_layout(height=420,margin=dict(l=20,r=20,t=60,b=30))
-            st.plotly_chart(fig,use_container_width=True)
+            lit_count = (
+                lit.groupby("_name_key")["Study_ID"]
+                .nunique().reset_index(name="Studies")
+                .merge(canon,on="_name_key",how="left")
+                .sort_values(["Studies","Reported_Group_Name"],ascending=[False,True])
+                .head(15)
+            )
+            if not lit_count.empty:
+                fig = px.bar(
+                    lit_count.sort_values("Studies"),
+                    x="Studies",
+                    y="Reported_Group_Name",
+                    orientation="h",
+                    text="Studies",
+                    title="Most frequently reported author-defined PMM constructs",
+                )
+                fig.update_yaxes(title="")
+                fig.update_xaxes(title="Unique studies reporting the exact construct name", dtick=1)
+                fig.update_traces(textposition="outside", cliponaxis=False)
+                fig.update_layout(height=420,margin=dict(l=20,r=70,t=60,b=30))
+                st.plotly_chart(fig,use_container_width=True)
+                st.caption(
+                    "Literature-only view. Bars count unique studies using the exact author-reported construct name "
+                    "(Dimension / Domain / Area / Pillar etc.). Synonyms are not merged and no current PCL, Theme, "
+                    "or derived PMM Dimension is used in this chart."
+                )
+        else:
+            st.info("No author-reported PMM dimensions/domains/areas/pillars are currently recoverable from 04_Verbatim_Evidence.")
 
     st.markdown("#### Source-study reported architecture — descriptive preview")
     reported_groups = build_reported_author_groupings(frames)
@@ -1272,7 +1304,7 @@ def render_supervisor_bi_overview(filtered: pd.DataFrame, full_catalog: pd.DataF
         )
         _render_reported_groups_for_study(frames, preview_study, compact=True)
         st.caption(
-            "This block reports the source study's own architecture. It is separate from the current derived PMM Dimensions shown above."
+            "This block reports only the source study's own architecture. No derived PMM Dimension from our de novo analysis is shown in this literature section."
         )
     else:
         st.info("No explicitly reported source-study architecture groupings are currently recoverable.")
