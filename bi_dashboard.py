@@ -1157,7 +1157,13 @@ def _revision_summary(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     log = frames.get("11_Decision_Log", pd.DataFrame()).copy()
     if log.empty:
         return pd.DataFrame(columns=["Revision type", "Count"])
-    blob = log.astype(str).agg(" ".join, axis=1).str.lower()
+    # Build one searchable text blob per decision row safely. Some workbook
+    # cells can carry numeric / datetime / pandas scalar values that make
+    # Series.agg(" ".join) raise TypeError even after broad casting.
+    blob = log.apply(
+        lambda row: " ".join(_text(value) for value in row.tolist()).lower(),
+        axis=1,
+    )
     patterns = [
         ("Reassignment / re-home", r"reassign|re-home|rehome"),
         ("Boundary review", r"boundary|heterogeneity|homogeneity"),
