@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.6-bi"
+BI_DASH_VERSION = "v0.16.7-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -1266,20 +1266,52 @@ def render_supervisor_bi_overview(filtered: pd.DataFrame, full_catalog: pd.DataF
             {"Mapping status":"Provisional","Count":provisional},
             {"Mapping status":"Challenged","Count":challenged},
         ])
-        fig = px.bar(status_df,x="Mapping status",y="Count",title="Current FOC → PCL mapping status")
-        fig.update_layout(height=360)
+        status_total = int(status_df["Count"].sum())
+        status_df["Percent"] = (
+            status_df["Count"] / status_total * 100 if status_total else 0
+        )
+        status_df["Label"] = status_df.apply(
+            lambda r: f"{int(r['Count']):,} ({r['Percent']:.1f}%)",
+            axis=1,
+        )
+        fig = px.bar(
+            status_df,
+            x="Count",
+            y="Mapping status",
+            orientation="h",
+            text="Label",
+            title="Current FOC → PCL mapping status",
+        )
+        fig.update_yaxes(title="")
+        fig.update_xaxes(
+            title="Current mapping rows",
+            rangemode="tozero",
+            range=[0, max(1, float(status_df["Count"].max()) * 1.18)],
+        )
+        fig.update_traces(textposition="outside", cliponaxis=False)
+        fig.update_layout(height=360, margin=dict(l=20, r=95, t=55, b=35))
         st.plotly_chart(fig,use_container_width=True)
+        st.caption(
+            "Counts and percentages are shown explicitly so smaller Provisional and Challenged groups remain visible "
+            "alongside the much larger Stable group."
+        )
     with b:
         revisions = _revision_summary(frames)
         if not revisions.empty:
             fig = px.bar(
                 revisions.sort_values("Count"),
                 x="Count",y="Revision type",orientation="h",
-                title="Documented analytical revision activity",
+                text="Count",
+                title="Decision-log revision signals (keyword-derived)",
             )
             fig.update_yaxes(title="")
-            fig.update_layout(height=360)
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            fig.update_layout(height=360, margin=dict(l=20, r=60, t=55, b=35))
             st.plotly_chart(fig,use_container_width=True)
+            st.caption(
+                "Exploratory audit signal only: counts are unique Decision Log rows matching each keyword family. "
+                "One decision can legitimately appear in more than one category, so these bars are not mutually exclusive event totals."
+            )
 
     st.markdown("#### Current watchlist")
     unthemed = unthemed_active_clusters(frames)
