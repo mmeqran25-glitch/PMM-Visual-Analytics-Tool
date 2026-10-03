@@ -9,6 +9,18 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
+from master_utils import (
+    active_cluster_register,
+    active_dimensions,
+    active_themes,
+    current_mapping_rows,
+    dimension_evidence_summary,
+    dimension_theme_map,
+    retired_themes,
+    traceability_checks,
+    unthemed_active_clusters,
+)
+
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -1019,6 +1031,334 @@ def render_novelty_stability(filtered: pd.DataFrame, frames: Dict[str, pd.DataFr
     st.dataframe(nov[show_cols], use_container_width=True, hide_index=True, height=420)
 
 
+
+def _dimension_support_table(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Current dimension support breadth with study/context descriptors."""
+    base = dimension_evidence_summary(frames, include_challenged=True)
+    if base.empty:
+        return base
+
+    dmap = dimension_theme_map(frames)
+    maps = current_mapping_rows(frames)
+    profile = frames.get("03_Study_Profile", pd.DataFrame()).copy()
+    if not profile.empty and "Study_ID" in profile.columns:
+        profile["Study_ID"] = profile["Study_ID"].fillna("").astype(str).str.strip()
+
+    themes = active_themes(frames)
+    theme_to_clusters = {}
+    if not themes.empty:
+        for _, r in themes.iterrows():
+            tid = _text(r.get("Theme_ID"))
+            vals = re.findall(r"\bPCL-\d{3}\b", _text(r.get("Included_Cluster_IDs")), flags=re.I)
+            theme_to_clusters[tid] = [v.upper() for v in vals]
+
+    rows = []
+    for _, r in base.iterrows():
+        did = _text(r.get("Dimension_ID"))
+        tids = []
+        if not dmap.empty:
+            tids = dmap.loc[dmap["Dimension_ID"].astype(str).eq(did), "Theme_ID"].astype(str).tolist()
+        cids = []
+        for tid in tids:
+            cids.extend(theme_to_clusters.get(tid, []))
+        cids = list(dict.fromkeys(cids))
+
+        mm = pd.DataFrame()
+        if not maps.empty and "Cluster_ID" in maps.columns:
+            status = maps.get("Mapping_Status", pd.Series("", index=maps.index)).fillna("").astype(str).str.strip()
+            mm = maps[
+                maps["Cluster_ID"].fillna("").astype(str).str.upper().isin(cids)
+                & status.isin(["Stable", "Provisional"])
+            ].copy()
+
+        study_ids = set(mm.get("Study_ID", pd.Series(dtype=str)).dropna().astype(str).str.strip()) if not mm.empty else set()
+        study_ids.discard("")
+
+        countries = set()
+        sectors = set()
+        methods = set()
+        if study_ids and not profile.empty:
+            pp = profile[profile["Study_ID"].isin(study_ids)].copy()
+            for col, target in [
+                ("Country_Context", countries),
+                ("Sector_Context", sectors),
+                ("Methodological_Family", methods),
+            ]:
+                if col in pp.columns:
+                    vals = pp[col].fillna("").astype(str).str.strip()
+                    target.update(v for v in vals if v)
+
+        rows.append({
+            "Dimension_ID": did,
+            "Dimension": _text(r.get("Candidate_Dimension_Name")),
+            "Studies": len(study_ids),
+            "FOCs": int(r.get("FOCs", 0) or 0),
+            "PCLs": int(r.get("Clusters", 0) or 0),
+            "Themes": int(r.get("Themes", 0) or 0),
+            "Countries": len(countries),
+            "Sectors": len(sectors),
+            "Methodological families": len(methods),
+            "Dimension_Status": _text(r.get("Dimension_Status")),
+        })
+    return pd.DataFrame(rows)
+
+
+def _dimension_concentration_table(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Evidence concentration by current dimension using mapped FOCs per study."""
+    dmap = dimension_theme_map(frames)
+    themes = active_themes(frames)
+    maps = current_mapping_rows(frames)
+    if dmap.empty or themes.empty or maps.empty:
+        return pd.DataFrame()
+
+    theme_to_clusters = {}
+    for _, r in themes.iterrows():
+        theme_to_clusters[_text(r.get("Theme_ID"))] = [
+            x.upper() for x in re.findall(r"\bPCL-\d{3}\b", _text(r.get("Included_Cluster_IDs")), flags=re.I)
+        ]
+
+    dim_names = {}
+    dims = active_dimensions(frames)
+    if not dims.empty:
+        dim_names = dict(zip(dims["Dimension_ID"].astype(str), dims["Candidate_Dimension_Name"].astype(str)))
+
+    rows = []
+    for did, g in dmap.groupby("Dimension_ID"):
+        tids = g["Theme_ID"].astype(str).tolist()
+        cids = []
+        for tid in tids:
+            cids.extend(theme_to_clusters.get(tid, []))
+        cids = list(dict.fromkeys(cids))
+        status = maps.get("Mapping_Status", pd.Series("", index=maps.index)).fillna("").astype(str).str.strip()
+        mm = maps[
+            maps["Cluster_ID"].fillna("").astype(str).str.upper().isin(cids)
+            & status.isin(["Stable", "Provisional"])
+        ].copy()
+        if mm.empty or "Study_ID" not in mm.columns or "Code_ID" not in mm.columns:
+            continue
+        by_study = mm.groupby("Study_ID")["Code_ID"].nunique().sort_values(ascending=False)
+        total = int(by_study.sum())
+        if total <= 0:
+            continue
+        top1 = float(by_study.iloc[0] / total * 100)
+        top5 = float(by_study.head(5).sum() / total * 100)
+        rows.append({
+            "Dimension_ID": str(did),
+            "Dimension": dim_names.get(str(did), ""),
+            "FOCs": total,
+            "Studies": int(by_study.index.nunique()),
+            "Top study share (%)": top1,
+            "Top 5 studies share (%)": top5,
+        })
+    return pd.DataFrame(rows)
+
+
+def _revision_summary(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    log = frames.get("11_Decision_Log", pd.DataFrame()).copy()
+    if log.empty:
+        return pd.DataFrame(columns=["Revision type", "Count"])
+    blob = log.astype(str).agg(" ".join, axis=1).str.lower()
+    patterns = [
+        ("Reassignment / re-home", r"reassign|re-home|rehome"),
+        ("Boundary review", r"boundary|heterogeneity|homogeneity"),
+        ("Split", r"\bsplit\b"),
+        ("Merge", r"\bmerge|merged|merger"),
+        ("Retirement / dissolution", r"retir|dissol|withdraw"),
+        ("Rename", r"\brename|renam"),
+    ]
+    rows=[]
+    for label, pat in patterns:
+        rows.append({"Revision type":label,"Count":int(blob.str.contains(pat,regex=True,na=False).sum())})
+    return pd.DataFrame(rows)
+
+
+def render_supervisor_bi_overview(filtered: pd.DataFrame, full_catalog: pd.DataFrame, frames: Dict[str, pd.DataFrame]) -> None:
+    st.subheader("Supervisor BI Overview")
+    st.caption(
+        "A compact academic overview of how the evidence corpus was transformed, where support comes from, "
+        "how broadly current dimensions are supported, and where analytical uncertainty remains."
+    )
+
+    counts = dashboard_counts(full_catalog, frames)
+    maps = current_mapping_rows(frames)
+    clusters = active_cluster_register(frames)
+    themes = active_themes(frames)
+    dims = active_dimensions(frames)
+
+    stable = provisional = challenged = 0
+    mapped_focs = 0
+    if not maps.empty:
+        status = maps.get("Mapping_Status", pd.Series("", index=maps.index)).fillna("").astype(str).str.strip()
+        stable = int(status.eq("Stable").sum())
+        provisional = int(status.eq("Provisional").sum())
+        challenged = int(status.eq("Challenged").sum())
+        if "Code_ID" in maps.columns:
+            mapped_focs = int(maps.loc[status.isin(["Stable","Provisional"]), "Code_ID"].nunique())
+
+    st.markdown("#### Evidence transformation chain")
+    chain = [
+        ("Source studies", counts["sources"]),
+        ("Pass contributors", counts["pass_contributors"]),
+        ("Pass evidence", counts["pass_evidence"]),
+        ("Mapped FOCs", mapped_focs),
+        ("PCLs", len(clusters)),
+        ("Themes", len(themes)),
+        ("Dimensions", len(dims)),
+    ]
+    cols = st.columns(len(chain))
+    for col,(label,val) in zip(cols,chain):
+        col.metric(label,f"{int(val):,}")
+
+    st.info(
+        "These counts represent different analytical units. The chain is a traceability progression, not a claim that each stage is a simple one-to-one filter."
+    )
+
+    st.markdown("#### Corpus shape and dimension support")
+    left,right = st.columns(2)
+    with left:
+        year_df = filtered.dropna(subset=["Year"]).copy()
+        if not year_df.empty:
+            all_year = year_df.groupby("Year")["Study_ID"].nunique().reset_index(name="All selected studies")
+            pass_year = (
+                year_df[year_df["Pass_Evidence"]>0]
+                .groupby("Year")["Study_ID"].nunique()
+                .reset_index(name="Pass contributors")
+            )
+            yr = all_year.merge(pass_year,on="Year",how="left").fillna(0)
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=yr["Year"],y=yr["All selected studies"],name="All selected studies"))
+            fig.add_trace(go.Bar(x=yr["Year"],y=yr["Pass contributors"],name="Pass contributors"))
+            fig.update_layout(
+                barmode="group",
+                title="Corpus vs analytical contributors by publication year",
+                xaxis_title="Publication year",
+                yaxis_title="Studies",
+                height=420,
+                margin=dict(l=20,r=20,t=60,b=30),
+            )
+            st.plotly_chart(fig,use_container_width=True)
+    with right:
+        support = _dimension_support_table(frames)
+        if not support.empty:
+            fig = px.bar(
+                support.sort_values("Studies"),
+                x="Studies",y="Dimension",orientation="h",
+                hover_data=["Dimension_ID","FOCs","PCLs","Themes","Countries","Sectors"],
+                title="Current dimensions by number of supporting studies",
+            )
+            fig.update_yaxes(title="")
+            fig.update_layout(height=420,margin=dict(l=20,r=20,t=60,b=30))
+            st.plotly_chart(fig,use_container_width=True)
+
+    st.markdown("#### Stability and revision signals")
+    a,b = st.columns(2)
+    with a:
+        status_df = pd.DataFrame([
+            {"Mapping status":"Stable","Count":stable},
+            {"Mapping status":"Provisional","Count":provisional},
+            {"Mapping status":"Challenged","Count":challenged},
+        ])
+        fig = px.bar(status_df,x="Mapping status",y="Count",title="Current FOC → PCL mapping status")
+        fig.update_layout(height=360)
+        st.plotly_chart(fig,use_container_width=True)
+    with b:
+        revisions = _revision_summary(frames)
+        if not revisions.empty:
+            fig = px.bar(
+                revisions.sort_values("Count"),
+                x="Count",y="Revision type",orientation="h",
+                title="Documented analytical revision activity",
+            )
+            fig.update_yaxes(title="")
+            fig.update_layout(height=360)
+            st.plotly_chart(fig,use_container_width=True)
+
+    st.markdown("#### Current watchlist")
+    unthemed = unthemed_active_clusters(frames)
+    retired = retired_themes(frames)
+    q1,q2,q3,q4 = st.columns(4)
+    q1.metric("Challenged FOCs", challenged)
+    q1.caption("Still unresolved")
+    q2.metric("Unthemed active PCLs", len(unthemed))
+    q2.caption("Awaiting defensible Theme home")
+    q3.metric("Retired Themes retained", len(retired))
+    q3.caption("Audit history preserved")
+    q4.metric("Provisional mappings", provisional)
+    q4.caption("Current but not fully stable")
+
+    st.caption(
+        "Supervisor interpretation: a non-zero watchlist is not automatically a weakness. It shows that unresolved cases are retained explicitly rather than force-fitted."
+    )
+
+
+def render_dimension_support_bi(frames: Dict[str, pd.DataFrame]) -> None:
+    st.subheader("Dimension Support")
+    support = _dimension_support_table(frames)
+    if support.empty:
+        st.info("No current Dimension support table could be built.")
+        return
+
+    st.markdown("#### Breadth of support")
+    st.dataframe(
+        support.sort_values(["Studies","FOCs"],ascending=False),
+        use_container_width=True,hide_index=True
+    )
+
+    fig = px.scatter(
+        support,
+        x="Studies",y="FOCs",size="PCLs",color="Themes",
+        hover_name="Dimension",
+        hover_data=["Dimension_ID","Countries","Sectors","Methodological families","Dimension_Status"],
+        title="Study breadth × FOC volume by current Dimension",
+    )
+    fig.update_layout(height=520)
+    st.plotly_chart(fig,use_container_width=True)
+
+    concentration = _dimension_concentration_table(frames)
+    if not concentration.empty:
+        st.markdown("#### Evidence concentration / dependency")
+        st.caption(
+            "Lower concentration generally indicates that support is distributed across more studies. "
+            "This is a dependency diagnostic, not a quality score."
+        )
+        fig = px.bar(
+            concentration.sort_values("Top 5 studies share (%)"),
+            x="Top 5 studies share (%)",y="Dimension",orientation="h",
+            hover_data=["Dimension_ID","Studies","FOCs","Top study share (%)"],
+            title="Share of each Dimension's mapped FOCs contributed by its top five studies",
+        )
+        fig.update_yaxes(title="")
+        fig.update_xaxes(range=[0,100],title="Top five studies' share (%)")
+        fig.update_layout(height=max(420,55*len(concentration)+150))
+        st.plotly_chart(fig,use_container_width=True)
+        st.dataframe(concentration,use_container_width=True,hide_index=True)
+
+
+def render_gaps_integrity_bi(frames: Dict[str, pd.DataFrame]) -> None:
+    st.subheader("Gaps & Integrity")
+    unthemed = unthemed_active_clusters(frames)
+    checks = traceability_checks(frames)
+
+    a,b = st.columns([1,1.2])
+    with a:
+        st.markdown("#### Analytical gaps")
+        maps = current_mapping_rows(frames)
+        challenged = 0
+        if not maps.empty and "Mapping_Status" in maps.columns:
+            challenged = int(maps["Mapping_Status"].fillna("").astype(str).str.strip().eq("Challenged").sum())
+        st.metric("Challenged FOCs",challenged)
+        st.metric("Unthemed active PCLs",len(unthemed))
+        if not unthemed.empty:
+            cols=[c for c in ["Cluster_ID","Working_Cluster_Label","Cluster_Status"] if c in unthemed.columns]
+            st.dataframe(unthemed[cols],use_container_width=True,hide_index=True,height=320)
+    with b:
+        st.markdown("#### Traceability / integrity checks")
+        if checks.empty:
+            st.info("No integrity checks are available.")
+        else:
+            st.dataframe(checks,use_container_width=True,hide_index=True,height=460)
+
+
 def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown(
         '<div class="note-banner"><b>Research Evidence BI Dashboard:</b> '
@@ -1036,10 +1376,11 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
     page = st.radio(
         "BI page",
         [
-            "Research Corpus Overview",
-            "Time & Context Explorer",
-            "Evidence & Quality",
-            "Novelty & Stability",
+            "Supervisor Overview",
+            "Evidence Base",
+            "Dimension Support",
+            "Stability & Revisions",
+            "Gaps & Integrity",
         ],
         horizontal=True,
         key="bi_dashboard_page",
@@ -1047,14 +1388,25 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
     st.caption(f"Universe: {universe} · Current filtered rows: {len(filtered)}")
     st.divider()
 
-    if page == "Research Corpus Overview":
+    if page == "Supervisor Overview":
+        render_supervisor_bi_overview(filtered, catalog, frames)
+    elif page == "Evidence Base":
         render_overview(filtered, catalog, frames)
-    elif page == "Time & Context Explorer":
+        st.divider()
         render_time_context(filtered)
-    elif page == "Evidence & Quality":
+        st.divider()
         render_evidence_quality(filtered, frames)
-    else:
+    elif page == "Dimension Support":
+        render_dimension_support_bi(frames)
+    elif page == "Stability & Revisions":
         render_novelty_stability(filtered, frames)
+        st.divider()
+        revisions = _revision_summary(frames)
+        if not revisions.empty:
+            st.markdown("#### Revision activity summary")
+            st.dataframe(revisions, use_container_width=True, hide_index=True)
+    else:
+        render_gaps_integrity_bi(frames)
 
     st.divider()
     with st.expander("Drill-through: studies behind the current filters", expanded=False):
