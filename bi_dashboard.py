@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.10-bi"
+BI_DASH_VERSION = "v0.16.11-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -2138,11 +2138,82 @@ def _is_valid_reported_group_name(name: str) -> bool:
     return _reported_group_name_exclusion_reason(name) == ""
 
 
+
+def _explicit_direct_group_relation(text: str) -> str:
+    """
+    Accept only relations that explicitly state that the ORIGINAL AUTHOR TERM
+    itself is a structural grouping. No inference from generic words elsewhere.
+    """
+    low = _text(text).lower()
+    if not low:
+        return ""
+    patterns = [
+        ("Dimension", r"\b(?:main|primary|core|conceptual|pm[m]?)?\s*dimensions?\b"),
+        ("Domain", r"\b(?:assessment|maturity|pm[m]?)?\s*domains?\b"),
+        ("Pillar", r"\b(?:main|core|model)?\s*pillars?\b"),
+        ("Knowledge Area", r"\bknowledge\s+areas?\b"),
+        ("Management Area", r"\bmanagement\s+areas?\b"),
+        ("Assessment Area", r"\bassessment\s+areas?\b"),
+        ("Capability Area", r"\bcapabilit(?:y|ies)\s+areas?\b"),
+        ("Process Area", r"\bprocess\s+areas?\b"),
+    ]
+    # Relationship must indicate membership/identity as a grouping, not merely
+    # mention one of these words in passing.
+    structural_cue = bool(re.search(
+        r"\b(?:is|are|as|one of|part of|classified as|defined as|represents?|constitutes?|"
+        r"dimension of|domain of|pillar of|area of|main dimension|assessment domain|"
+        r"knowledge area|management area|capability area|process area)\b",
+        low,
+        flags=re.I,
+    ))
+    if not structural_cue:
+        return ""
+    for label, pattern in patterns:
+        if re.search(pattern, low, flags=re.I):
+            return label
+    return ""
+
+
+def _explicit_parent_group_relation(text: str) -> str:
+    """
+    Accept a parent construct only where the relation explicitly says the
+    lower-level record belongs to / is an item or component under a named
+    structural grouping.
+    """
+    low = _text(text).lower()
+    if not low:
+        return ""
+    child_cue = bool(re.search(
+        r"\b(?:item|indicator|criterion|practice|questionnaire|survey item|component|subcomponent|"
+        r"sub-domain|subdomain|belongs to|under|within)\b",
+        low,
+        flags=re.I,
+    ))
+    if not child_cue:
+        return ""
+    for label, pattern in [
+        ("Dimension", r"\bdimensions?\b"),
+        ("Domain", r"\bdomains?\b"),
+        ("Pillar", r"\bpillars?\b"),
+        ("Knowledge Area", r"\bknowledge\s+areas?\b"),
+        ("Management Area", r"\bmanagement\s+areas?\b"),
+        ("Assessment Area", r"\bassessment\s+areas?\b"),
+        ("Capability Area", r"\bcapabilit(?:y|ies)\s+areas?\b"),
+        ("Process Area", r"\bprocess\s+areas?\b"),
+    ]:
+        if re.search(pattern, low, flags=re.I):
+            return label
+    return ""
+
+
 def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
-    Extract named source-study dimensions/domains/areas/pillars conservatively.
-    A grouping is included only when the workbook explicitly identifies the term
-    itself, or its parent construct, as that type.
+    High-precision literature architecture extraction.
+
+    Inclusion requires an explicit structural relationship in
+    Author_Defined_Relationship. Evidence_Form / Source_Component are NOT used
+    to infer a construct type for this chart. This deliberately sacrifices
+    recall to protect the literature-only view from false positives.
     """
     ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
     if ev.empty or "Study_ID" not in ev.columns:
@@ -2150,10 +2221,10 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
 
     for col in [
         "Evidence_ID","Study_ID","Original_Author_Term","Author_Parent_Construct",
-        "Author_Defined_Relationship","Evidence_Form","Source_Component",
-        "Meaning_Unit_Verbatim","Printed_Page","PDF_Page_if_Different",
-        "PM_Practice_Maturity_Evidence_Gate","Evidence_Origin","Gate_Rationale",
-        "Analyst_Memo","Source_Fidelity_Status",
+        "Author_Defined_Relationship","Meaning_Unit_Verbatim","Printed_Page",
+        "PDF_Page_if_Different","PM_Practice_Maturity_Evidence_Gate",
+        "Evidence_Origin","Gate_Rationale","Analyst_Memo","Source_Fidelity_Status",
+        "Meaning_Unit_Status",
     ]:
         if col not in ev.columns:
             ev[col] = ""
@@ -2161,66 +2232,38 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
     rows = []
     for _, r in ev.iterrows():
         sid = _text(r.get("Study_ID"))
-        if not sid:
-            continue
-
         original = _text(r.get("Original_Author_Term"))
         parent = _text(r.get("Author_Parent_Construct"))
         rel = _text(r.get("Author_Defined_Relationship"))
-        form = _text(r.get("Evidence_Form"))
-        component = _text(r.get("Source_Component"))
-        mu = _text(r.get("Meaning_Unit_Verbatim"))
-        rel_type = _explicit_group_type(rel)
-        form_type = _explicit_group_type(form)
-        component_type = _explicit_group_type(component)
+        if not sid or not rel:
+            continue
 
-        # Case 1: the row explicitly says the Original_Author_Term is a
-        # dimension/domain/area/pillar (e.g. "Main dimension of ...").
-        direct_type = rel_type or form_type or component_type
-        if original and direct_type:
-            lower_rel = rel.lower()
-            looks_like_child_relation = bool(re.search(
-                r"item|indicator|criterion|practice|questionnaire|survey|operationali|belongs to|under|within",
-                lower_rel,
-            ))
-            valid_construct_name = _is_valid_reported_group_name(original)
-            if not looks_like_child_relation and valid_construct_name:
-                rows.append({
-                    "Study_ID": sid,
-                    "Reported_Group_Name": original,
-                    "Reported_Group_Type": direct_type,
-                    "Evidence_Basis": "Original author term explicitly labelled in source fields",
-                    "Evidence_ID": _text(r.get("Evidence_ID")),
-                    "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
-                    "Author_Relationship_Verbatim": rel,
-                    "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
-                    "Evidence_Origin": _text(r.get("Evidence_Origin")),
-                    "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
-                })
+        # Direct case: the author relationship explicitly classifies the
+        # Original_Author_Term as a Dimension / Domain / Pillar / named Area.
+        direct_type = _explicit_direct_group_relation(rel)
+        if direct_type and original and _is_valid_reported_group_name(original):
+            rows.append({
+                "Study_ID": sid,
+                "Reported_Group_Name": original,
+                "Reported_Group_Type": direct_type,
+                "Evidence_Basis": "Explicit author-defined structural relationship",
+                "Evidence_ID": _text(r.get("Evidence_ID")),
+                "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
+                "Author_Relationship_Verbatim": rel,
+                "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
+                "Evidence_Origin": _text(r.get("Evidence_Origin")),
+                "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
+            })
 
-        # Case 2: an item/indicator/practice is explicitly stated to sit under a
-        # dimension/domain/area/pillar. In that case the Parent Construct is the
-        # source-reported grouping.
-        parent_type = ""
-        lower_rel = rel.lower()
-        if parent and rel_type and re.search(
-            r"item|indicator|criterion|practice|questionnaire|survey|operationali|belongs to|under|within|component",
-            lower_rel,
-        ):
-            parent_type = rel_type
-        elif parent:
-            # Some rows put the label in Evidence_Form/Source_Component while
-            # Author_Parent_Construct carries the actual group name.
-            descriptor = " ".join([form, component]).lower()
-            if re.search(r"questionnaire|survey|indicator|criterion|item|practice", descriptor):
-                parent_type = _explicit_group_type(rel) or _explicit_group_type(descriptor)
-
-        if parent and parent_type and _is_valid_reported_group_name(parent):
+        # Parent case: a lower-level item explicitly belongs to a structural
+        # grouping; the parent construct is therefore recoverable as that group.
+        parent_type = _explicit_parent_group_relation(rel)
+        if parent_type and parent and _is_valid_reported_group_name(parent):
             rows.append({
                 "Study_ID": sid,
                 "Reported_Group_Name": parent,
                 "Reported_Group_Type": parent_type,
-                "Evidence_Basis": "Parent construct explicitly identified as the grouping for a lower-level item",
+                "Evidence_Basis": "Parent construct explicitly identified by a lower-level structural relation",
                 "Evidence_ID": _text(r.get("Evidence_ID")),
                 "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
                 "Author_Relationship_Verbatim": rel,
@@ -2233,8 +2276,6 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
     if out.empty:
         return out
 
-    # Remove obvious non-names and aggregate repeated evidence for the same
-    # source-reported grouping. Repetition is supporting evidence, not a new group.
     out["Reported_Group_Name"] = out["Reported_Group_Name"].fillna("").astype(str).str.strip()
     out["Exclusion_Reason"] = out["Reported_Group_Name"].map(_reported_group_name_exclusion_reason)
     out = out[
@@ -2250,7 +2291,7 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
                 vals.append(t)
         return " | ".join(vals)
 
-    out = (
+    return (
         out.groupby(
             ["Study_ID","Reported_Group_Name","Reported_Group_Type"],
             dropna=False,
@@ -2266,7 +2307,6 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
         )
         .reset_index()
     )
-    return out
 
 
 def build_aggregate_architecture_statements(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
