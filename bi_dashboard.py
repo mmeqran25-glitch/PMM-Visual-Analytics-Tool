@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.12-bi"
+BI_DASH_VERSION = "v0.16.13-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -2430,6 +2430,174 @@ def _render_reported_groups_for_study(
             )
 
 
+
+def build_relationship_audit(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """
+    Audit all distinct Author_Defined_Relationship values that could plausibly
+    carry architecture meaning. Confirmed rules and unresolved phrases are shown
+    separately so new source-language patterns can be reviewed transparently.
+    """
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    if ev.empty or "Author_Defined_Relationship" not in ev.columns:
+        return pd.DataFrame()
+
+    for col in [
+        "Study_ID","Evidence_ID","Original_Author_Term","Author_Parent_Construct",
+        "Author_Defined_Relationship","Evidence_Form",
+        "PM_Practice_Maturity_Evidence_Gate",
+    ]:
+        if col not in ev.columns:
+            ev[col] = ""
+
+    work = ev.copy()
+    work["Author_Defined_Relationship"] = (
+        work["Author_Defined_Relationship"].fillna("").astype(str).str.strip()
+    )
+    work = work[work["Author_Defined_Relationship"].ne("")].copy()
+
+    # Keep architecture-relevant relations broad in the audit queue; unlike the
+    # confirmed construct set, this table is intentionally exploratory.
+    blob = (
+        work["Author_Defined_Relationship"].str.lower()
+        + " "
+        + work["Evidence_Form"].fillna("").astype(str).str.lower()
+        + " "
+        + work["PM_Practice_Maturity_Evidence_Gate"].fillna("").astype(str).str.lower()
+    )
+    work = work[
+        blob.str.contains(
+            r"dimension|domain|pillar|area|kpa|cluster|construct|architecture|building block|"
+            r"maturity model|pmmm|framework",
+            regex=True,
+            na=False,
+        )
+    ].copy()
+    if work.empty:
+        return pd.DataFrame()
+
+    work["Confirmed_Type"] = work.apply(_reported_construct_type_from_row, axis=1)
+    work["Classification"] = work["Confirmed_Type"].map(
+        lambda x: "Confirmed rule" if _text(x) else "Review required"
+    )
+
+    def join_unique(series):
+        vals=[]
+        for v in series:
+            t=_text(v)
+            if t and t not in vals:
+                vals.append(t)
+        return " | ".join(vals[:12])
+
+    audit = (
+        work.groupby(
+            ["Author_Defined_Relationship","Classification","Confirmed_Type"],
+            dropna=False,
+        )
+        .agg(
+            Rows=("Evidence_ID","count"),
+            Studies=("Study_ID","nunique"),
+            Example_Studies=("Study_ID",join_unique),
+            Example_Terms=("Original_Author_Term",join_unique),
+            Evidence_Forms=("Evidence_Form",join_unique),
+        )
+        .reset_index()
+        .sort_values(
+            ["Classification","Studies","Rows"],
+            ascending=[True,False,False],
+        )
+    )
+    return audit
+
+
+def render_literature_construct_catalog(frames: Dict[str, pd.DataFrame]) -> None:
+    st.markdown("### Literature Architecture Catalog")
+    st.caption(
+        "High-precision catalogue of PMM constructs explicitly reported in the source literature. "
+        "This table is source-descriptive only and is not mapped to our derived PCLs, Themes, or Dimensions."
+    )
+
+    groups = build_reported_author_groupings(frames)
+    if groups.empty:
+        st.info("No confirmed source-reported architecture constructs are available under the current rules.")
+        return
+
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Studies with confirmed architecture", groups["Study_ID"].nunique())
+    c2.metric("Confirmed study-construct pairs", len(groups))
+    c3.metric("Distinct exact construct names", groups["Reported_Group_Name"].str.casefold().nunique())
+    c4.metric("Reported construct types", groups["Reported_Group_Type"].nunique())
+
+    types = sorted(groups["Reported_Group_Type"].dropna().astype(str).unique().tolist())
+    studies = sorted(groups["Study_ID"].dropna().astype(str).unique().tolist())
+
+    f1,f2 = st.columns(2)
+    selected_types = f1.multiselect(
+        "Reported construct type",
+        types,
+        default=types,
+        key="bi_lit_arch_types",
+    )
+    selected_studies = f2.multiselect(
+        "Study ID",
+        studies,
+        default=[],
+        key="bi_lit_arch_studies",
+        placeholder="All studies",
+    )
+
+    view = groups.copy()
+    if selected_types:
+        view = view[view["Reported_Group_Type"].isin(selected_types)].copy()
+    if selected_studies:
+        view = view[view["Study_ID"].isin(selected_studies)].copy()
+
+    st.markdown("#### Study × author-reported construct")
+    cols = [
+        "Study_ID","Reported_Group_Type","Reported_Group_Name",
+        "Author_Parent_Constructs","Author_Relationships",
+        "Supporting_Evidence_IDs","Source_Pages",
+        "Evidence_Forms","Evidence_Origins","Evidence_Gates",
+    ]
+    st.dataframe(
+        view[[c for c in cols if c in view.columns]]
+        .sort_values(["Study_ID","Reported_Group_Type","Reported_Group_Name"]),
+        use_container_width=True,
+        hide_index=True,
+        height=520,
+    )
+
+    exact = view.copy()
+    if not exact.empty:
+        exact["_name_key"] = exact["Reported_Group_Name"].str.casefold()
+        exact_freq = (
+            exact.groupby(["_name_key","Reported_Group_Name","Reported_Group_Type"])
+            .agg(
+                Studies=("Study_ID","nunique"),
+                Study_IDs=("Study_ID",lambda x:" | ".join(sorted(set(map(str,x))))),
+            )
+            .reset_index()
+            .sort_values(["Studies","Reported_Group_Name"],ascending=[False,True])
+        )
+        with st.expander("Exact-name recurrence across studies", expanded=False):
+            st.caption(
+                "Exact wording only. No synonym consolidation is performed here; for example, Risk Management and Project Risk Management remain separate."
+            )
+            st.dataframe(
+                exact_freq[["Reported_Group_Type","Reported_Group_Name","Studies","Study_IDs"]],
+                use_container_width=True,
+                hide_index=True,
+                height=430,
+            )
+
+    st.download_button(
+        "Download confirmed literature architecture catalog (CSV)",
+        data=view.to_csv(index=False).encode("utf-8-sig"),
+        file_name="PMM_confirmed_literature_architecture_catalog.csv",
+        mime="text/csv",
+        key="bi_lit_arch_catalog_download",
+    )
+
+
 def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
     st.subheader("Study Architecture Explorer — Pilot")
     st.warning(
@@ -2437,6 +2605,9 @@ def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
         "provenance, and later comparative use only. It must not inform or revise the de novo PCL → Theme → Dimension "
         "formation until that derivation is formally closed."
     )
+
+    render_literature_construct_catalog(frames)
+    st.divider()
 
     arch = build_author_architecture_candidates(frames)
     if arch.empty:
@@ -2595,6 +2766,20 @@ def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
                 "does not meet the explicit high-precision rules. They remain available for manual review."
             )
             st.dataframe(review_study, use_container_width=True, hide_index=True, height=320)
+
+        relationship_audit = build_relationship_audit(frames)
+        if not relationship_audit.empty:
+            st.markdown("#### Author-defined relationship audit")
+            st.caption(
+                "Confirmed rule = already admitted by an explicit extraction rule. "
+                "Review required = architecture-like wording exists but is deliberately withheld from the confirmed literature catalog until manually adjudicated."
+            )
+            st.dataframe(
+                relationship_audit,
+                use_container_width=True,
+                hide_index=True,
+                height=420,
+            )
 
         unresolved = ss[ss["Architecture_Status"].eq("Review required")].copy()
         if not unresolved.empty:
