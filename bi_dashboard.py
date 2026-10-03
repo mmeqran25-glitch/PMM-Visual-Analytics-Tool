@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.7-bi"
+BI_DASH_VERSION = "v0.16.8-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -1258,6 +1258,25 @@ def render_supervisor_bi_overview(filtered: pd.DataFrame, full_catalog: pd.DataF
             fig.update_layout(height=420,margin=dict(l=20,r=20,t=60,b=30))
             st.plotly_chart(fig,use_container_width=True)
 
+    st.markdown("#### Source-study reported architecture — descriptive preview")
+    reported_groups = build_reported_author_groupings(frames)
+    if not reported_groups.empty:
+        reported_studies = sorted(reported_groups["Study_ID"].dropna().astype(str).unique().tolist())
+        preferred_reported = ["SR067","SR051","SR403","SR875","SR018"]
+        default_reported = next((x for x in preferred_reported if x in reported_studies), reported_studies[0])
+        preview_study = st.selectbox(
+            "Select a source study to view its reported Dimensions / Domains / Areas / Pillars",
+            reported_studies,
+            index=reported_studies.index(default_reported),
+            key="bi_supervisor_reported_architecture_study",
+        )
+        _render_reported_groups_for_study(frames, preview_study, compact=True)
+        st.caption(
+            "This block reports the source study's own architecture. It is separate from the current derived PMM Dimensions shown above."
+        )
+    else:
+        st.info("No explicitly reported source-study architecture groupings are currently recoverable.")
+
     st.markdown("#### Stability and revision signals")
     a,b = st.columns(2)
     with a:
@@ -1995,6 +2014,265 @@ def build_author_architecture_candidates(frames: Dict[str, pd.DataFrame]) -> pd.
     return agg
 
 
+
+AUTHOR_GROUP_TYPES = [
+    ("Dimension", r"\bdimensions?\b"),
+    ("Domain", r"\bdomains?\b"),
+    ("Pillar", r"\bpillars?\b"),
+    ("Knowledge Area", r"\bknowledge\s+areas?\b"),
+    ("Management Area", r"\bmanagement\s+areas?\b"),
+    ("Assessment Area", r"\bassessment\s+areas?\b"),
+    ("Capability Area", r"\bcapabilit(?:y|ies)\s+areas?\b"),
+    ("Process Area", r"\bprocess\s+areas?\b"),
+    ("Area", r"\bareas?\b"),
+]
+
+
+def _explicit_group_type(text: str) -> str:
+    low = _text(text).lower()
+    if not low:
+        return ""
+    for label, pattern in AUTHOR_GROUP_TYPES:
+        if re.search(pattern, low, flags=re.I):
+            return label
+    return ""
+
+
+def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """
+    Extract named source-study dimensions/domains/areas/pillars conservatively.
+    A grouping is included only when the workbook explicitly identifies the term
+    itself, or its parent construct, as that type.
+    """
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    if ev.empty or "Study_ID" not in ev.columns:
+        return pd.DataFrame()
+
+    for col in [
+        "Evidence_ID","Study_ID","Original_Author_Term","Author_Parent_Construct",
+        "Author_Defined_Relationship","Evidence_Form","Source_Component",
+        "Meaning_Unit_Verbatim","Printed_Page","PDF_Page_if_Different",
+        "PM_Practice_Maturity_Evidence_Gate","Evidence_Origin","Gate_Rationale",
+        "Analyst_Memo","Source_Fidelity_Status",
+    ]:
+        if col not in ev.columns:
+            ev[col] = ""
+
+    rows = []
+    for _, r in ev.iterrows():
+        sid = _text(r.get("Study_ID"))
+        if not sid:
+            continue
+
+        original = _text(r.get("Original_Author_Term"))
+        parent = _text(r.get("Author_Parent_Construct"))
+        rel = _text(r.get("Author_Defined_Relationship"))
+        form = _text(r.get("Evidence_Form"))
+        component = _text(r.get("Source_Component"))
+        mu = _text(r.get("Meaning_Unit_Verbatim"))
+        rel_type = _explicit_group_type(rel)
+        form_type = _explicit_group_type(form)
+        component_type = _explicit_group_type(component)
+
+        # Case 1: the row explicitly says the Original_Author_Term is a
+        # dimension/domain/area/pillar (e.g. "Main dimension of ...").
+        direct_type = rel_type or form_type or component_type
+        if original and direct_type:
+            lower_rel = rel.lower()
+            looks_like_child_relation = bool(re.search(
+                r"item|indicator|criterion|practice|questionnaire|survey|operationali|belongs to|under|within",
+                lower_rel,
+            ))
+            if not looks_like_child_relation:
+                rows.append({
+                    "Study_ID": sid,
+                    "Reported_Group_Name": original,
+                    "Reported_Group_Type": direct_type,
+                    "Evidence_Basis": "Original author term explicitly labelled in source fields",
+                    "Evidence_ID": _text(r.get("Evidence_ID")),
+                    "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
+                    "Author_Relationship_Verbatim": rel,
+                    "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
+                    "Evidence_Origin": _text(r.get("Evidence_Origin")),
+                    "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
+                })
+
+        # Case 2: an item/indicator/practice is explicitly stated to sit under a
+        # dimension/domain/area/pillar. In that case the Parent Construct is the
+        # source-reported grouping.
+        parent_type = ""
+        lower_rel = rel.lower()
+        if parent and rel_type and re.search(
+            r"item|indicator|criterion|practice|questionnaire|survey|operationali|belongs to|under|within|component",
+            lower_rel,
+        ):
+            parent_type = rel_type
+        elif parent:
+            # Some rows put the label in Evidence_Form/Source_Component while
+            # Author_Parent_Construct carries the actual group name.
+            descriptor = " ".join([form, component]).lower()
+            if re.search(r"questionnaire|survey|indicator|criterion|item|practice", descriptor):
+                parent_type = _explicit_group_type(rel) or _explicit_group_type(descriptor)
+
+        if parent and parent_type:
+            rows.append({
+                "Study_ID": sid,
+                "Reported_Group_Name": parent,
+                "Reported_Group_Type": parent_type,
+                "Evidence_Basis": "Parent construct explicitly identified as the grouping for a lower-level item",
+                "Evidence_ID": _text(r.get("Evidence_ID")),
+                "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
+                "Author_Relationship_Verbatim": rel,
+                "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
+                "Evidence_Origin": _text(r.get("Evidence_Origin")),
+                "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
+            })
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+
+    # Remove obvious non-names and aggregate repeated evidence for the same
+    # source-reported grouping. Repetition is supporting evidence, not a new group.
+    out["Reported_Group_Name"] = out["Reported_Group_Name"].fillna("").astype(str).str.strip()
+    out = out[out["Reported_Group_Name"].ne("")].copy()
+
+    def join_unique(series):
+        vals = []
+        for v in series:
+            t = _text(v)
+            if t and t not in vals:
+                vals.append(t)
+        return " | ".join(vals)
+
+    out = (
+        out.groupby(
+            ["Study_ID","Reported_Group_Name","Reported_Group_Type"],
+            dropna=False,
+        )
+        .agg(
+            Evidence_Basis=("Evidence_Basis", join_unique),
+            Supporting_Evidence_IDs=("Evidence_ID", join_unique),
+            Source_Pages=("Source_Page", join_unique),
+            Author_Relationships=("Author_Relationship_Verbatim", join_unique),
+            Evidence_Gates=("Evidence_Gate", join_unique),
+            Evidence_Origins=("Evidence_Origin", join_unique),
+            Fidelity_Statuses=("Source_Fidelity_Status", join_unique),
+        )
+        .reset_index()
+    )
+    return out
+
+
+def build_aggregate_architecture_statements(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Keep aggregate statements such as '10 PMBOK areas + 4 literature-added areas' visible."""
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    if ev.empty or "Study_ID" not in ev.columns:
+        return pd.DataFrame()
+    for col in [
+        "Evidence_ID","Study_ID","Meaning_Unit_Verbatim","Original_Author_Term",
+        "Author_Defined_Relationship","Printed_Page","PDF_Page_if_Different",
+        "Evidence_Origin","PM_Practice_Maturity_Evidence_Gate",
+    ]:
+        if col not in ev.columns:
+            ev[col] = ""
+
+    rows = []
+    for _, r in ev.iterrows():
+        blob = " ".join([
+            _text(r.get("Meaning_Unit_Verbatim")),
+            _text(r.get("Original_Author_Term")),
+            _text(r.get("Author_Defined_Relationship")),
+        ])
+        if not re.search(r"\b\d+\b", blob):
+            continue
+        if not re.search(
+            r"dimension|domain|pillar|knowledge\s+area|management\s+area|assessment\s+area|"
+            r"capability\s+area|process\s+area|\bareas?\b",
+            blob,
+            flags=re.I,
+        ):
+            continue
+        rows.append({
+            "Study_ID": _text(r.get("Study_ID")),
+            "Aggregate_Architecture_Statement": blob.strip(),
+            "Evidence_ID": _text(r.get("Evidence_ID")),
+            "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
+            "Evidence_Origin": _text(r.get("Evidence_Origin")),
+            "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
+        })
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.drop_duplicates(
+            subset=["Study_ID","Aggregate_Architecture_Statement","Evidence_ID"]
+        )
+    return out
+
+
+def _render_reported_groups_for_study(
+    frames: Dict[str, pd.DataFrame],
+    study_id: str,
+    *,
+    compact: bool = False,
+) -> None:
+    groups = build_reported_author_groupings(frames)
+    agg = build_aggregate_architecture_statements(frames)
+
+    gg = groups[groups["Study_ID"].eq(study_id)].copy() if not groups.empty else pd.DataFrame()
+    aa = agg[agg["Study_ID"].eq(study_id)].copy() if not agg.empty else pd.DataFrame()
+
+    st.markdown("#### Author-reported Dimensions / Domains / Areas / Pillars")
+    st.caption(
+        "These are source-study constructs reported by the authors. They are displayed for description/provenance only "
+        "and remain quarantined from the de novo PCL → Theme → Dimension derivation."
+    )
+
+    if gg.empty:
+        st.info(
+            "No individually named Dimension/Domain/Area/Pillar is explicitly recoverable from the current "
+            "04_Verbatim_Evidence rows for this study. Aggregate statements, if present, are shown below."
+        )
+    else:
+        type_counts = (
+            gg.groupby("Reported_Group_Type")["Reported_Group_Name"]
+            .nunique().sort_values(ascending=False)
+        )
+        summary = " · ".join(f"{k}: {int(v)}" for k, v in type_counts.items())
+        st.success(f"{study_id} — {summary}")
+
+        for group_type in type_counts.index:
+            part = gg[gg["Reported_Group_Type"].eq(group_type)].copy()
+            names = sorted(part["Reported_Group_Name"].astype(str).unique().tolist())
+            st.markdown(f"**{group_type}{'s' if not group_type.endswith('s') else ''} ({len(names)})**")
+            for name in names:
+                st.markdown(f"- {name}")
+
+        if not compact:
+            with st.expander("Evidence supporting these reported groupings", expanded=False):
+                cols = [
+                    "Reported_Group_Type","Reported_Group_Name","Evidence_Basis",
+                    "Supporting_Evidence_IDs","Source_Pages","Author_Relationships",
+                    "Evidence_Origins","Evidence_Gates","Fidelity_Statuses",
+                ]
+                st.dataframe(
+                    gg[[c for c in cols if c in gg.columns]],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=430,
+                )
+
+    if not aa.empty:
+        st.markdown("##### Aggregate architecture statements")
+        st.caption(
+            "These statements report a number or composition of areas/dimensions but may not individually evidence every member name."
+        )
+        for _, row in aa.iterrows():
+            st.markdown(
+                f"- {_text(row.get('Aggregate_Architecture_Statement'))} "
+                f"— Evidence {_text(row.get('Evidence_ID'))}"
+            )
+
+
 def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
     st.subheader("Study Architecture Explorer — Pilot")
     st.warning(
@@ -2018,6 +2296,11 @@ def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
         key="bi_architecture_study",
     )
     ss = arch[arch["Study_ID"].eq(selected)].copy()
+
+    # Put the actual author-reported dimensions/domains/areas first; this is
+    # the primary user-facing purpose of the explorer.
+    _render_reported_groups_for_study(frames, selected)
+    st.divider()
 
     explicit = int(ss["Architecture_Status"].eq("Pilot explicit").sum())
     review = int(ss["Architecture_Status"].eq("Review required").sum())
