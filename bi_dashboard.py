@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.9-bi"
+BI_DASH_VERSION = "v0.16.10-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -2070,6 +2070,74 @@ def _explicit_group_type(text: str) -> str:
     return ""
 
 
+NUMBER_WORDS = (
+    "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    "thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty"
+)
+
+
+def _reported_group_name_exclusion_reason(name: str) -> str:
+    """
+    Guard against false positives in literature-reported constructs.
+    The chart is for individually named constructs, not instruments, levels,
+    counts, or aggregate architecture statements.
+    """
+    text = _text(name)
+    low = text.lower()
+    if not low:
+        return "Blank"
+
+    if re.search(
+        r"likert|multiple[- ]choice|questionnaire|survey questions?|questions?\b|"
+        r"response options?|rating scale|point scale|scale points?|items?\b",
+        low,
+        flags=re.I,
+    ):
+        return "Measurement format / questionnaire content"
+
+    if re.search(
+        r"^\s*(?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth)\s+"
+        r"(?:maturity\s+)?(?:level|stage)\b|"
+        r"\b(?:maturity\s+)?(?:level|stage)\s*\d+\b",
+        low,
+        flags=re.I,
+    ):
+        return "Maturity level / progression descriptor"
+
+    # Aggregate statements such as:
+    # "10 management areas / 41 second-class targets"
+    # "14 dimensions / knowledge areas"
+    # "ten project management knowledge areas"
+    count_token = rf"(?:\d+|{NUMBER_WORDS})"
+    grouping_plural = (
+        r"(?:dimensions?|domains?|pillars?|knowledge\s+areas?|management\s+areas?|"
+        r"assessment\s+areas?|capability\s+areas?|process\s+areas?|\bareas?\b)"
+    )
+    if re.search(rf"\b{count_token}\b.*\b{grouping_plural}\b", low, flags=re.I):
+        return "Aggregate architecture statement"
+
+    if "/" in text and re.search(
+        r"dimension|domain|pillar|area|target|question|item|level",
+        low,
+        flags=re.I,
+    ):
+        return "Aggregate / compound architecture statement"
+
+    if re.fullmatch(
+        r"(?:dimensions?|domains?|pillars?|areas?|knowledge areas?|management areas?|"
+        r"assessment areas?|capability areas?|process areas?)",
+        low.strip(),
+        flags=re.I,
+    ):
+        return "Generic construct-type label without a construct name"
+
+    return ""
+
+
+def _is_valid_reported_group_name(name: str) -> bool:
+    return _reported_group_name_exclusion_reason(name) == ""
+
+
 def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
     Extract named source-study dimensions/domains/areas/pillars conservatively.
@@ -2115,7 +2183,8 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
                 r"item|indicator|criterion|practice|questionnaire|survey|operationali|belongs to|under|within",
                 lower_rel,
             ))
-            if not looks_like_child_relation:
+            valid_construct_name = _is_valid_reported_group_name(original)
+            if not looks_like_child_relation and valid_construct_name:
                 rows.append({
                     "Study_ID": sid,
                     "Reported_Group_Name": original,
@@ -2146,7 +2215,7 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
             if re.search(r"questionnaire|survey|indicator|criterion|item|practice", descriptor):
                 parent_type = _explicit_group_type(rel) or _explicit_group_type(descriptor)
 
-        if parent and parent_type:
+        if parent and parent_type and _is_valid_reported_group_name(parent):
             rows.append({
                 "Study_ID": sid,
                 "Reported_Group_Name": parent,
@@ -2167,7 +2236,11 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
     # Remove obvious non-names and aggregate repeated evidence for the same
     # source-reported grouping. Repetition is supporting evidence, not a new group.
     out["Reported_Group_Name"] = out["Reported_Group_Name"].fillna("").astype(str).str.strip()
-    out = out[out["Reported_Group_Name"].ne("")].copy()
+    out["Exclusion_Reason"] = out["Reported_Group_Name"].map(_reported_group_name_exclusion_reason)
+    out = out[
+        out["Reported_Group_Name"].ne("")
+        & out["Exclusion_Reason"].eq("")
+    ].copy()
 
     def join_unique(series):
         vals = []
