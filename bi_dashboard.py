@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.11-bi"
+BI_DASH_VERSION = "v0.16.12-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -2139,81 +2139,66 @@ def _is_valid_reported_group_name(name: str) -> bool:
 
 
 
-def _explicit_direct_group_relation(text: str) -> str:
-    """
-    Accept only relations that explicitly state that the ORIGINAL AUTHOR TERM
-    itself is a structural grouping. No inference from generic words elsewhere.
-    """
-    low = _text(text).lower()
-    if not low:
-        return ""
-    patterns = [
-        ("Dimension", r"\b(?:main|primary|core|conceptual|pm[m]?)?\s*dimensions?\b"),
-        ("Domain", r"\b(?:assessment|maturity|pm[m]?)?\s*domains?\b"),
-        ("Pillar", r"\b(?:main|core|model)?\s*pillars?\b"),
-        ("Knowledge Area", r"\bknowledge\s+areas?\b"),
-        ("Management Area", r"\bmanagement\s+areas?\b"),
-        ("Assessment Area", r"\bassessment\s+areas?\b"),
-        ("Capability Area", r"\bcapabilit(?:y|ies)\s+areas?\b"),
-        ("Process Area", r"\bprocess\s+areas?\b"),
-    ]
-    # Relationship must indicate membership/identity as a grouping, not merely
-    # mention one of these words in passing.
-    structural_cue = bool(re.search(
-        r"\b(?:is|are|as|one of|part of|classified as|defined as|represents?|constitutes?|"
-        r"dimension of|domain of|pillar of|area of|main dimension|assessment domain|"
-        r"knowledge area|management area|capability area|process area)\b",
-        low,
-        flags=re.I,
-    ))
-    if not structural_cue:
-        return ""
-    for label, pattern in patterns:
-        if re.search(pattern, low, flags=re.I):
-            return label
-    return ""
+
+REPORTED_CONSTRUCT_RELATION_RULES = [
+    # High-precision rules observed directly in 04_Verbatim_Evidence.
+    ("Dimension", r"^(?:Main dimension of|Conceptual dimension of)$", None),
+    ("Domain", r"^(?:Assessment domain of|Core domain of)$", None),
+    ("Pillar", r"^(?:Pillar of|Framework pillar of)$", None),
+    ("Area", r"^Area of$", None),
+    ("Assessment Area", r"^Assessment area of$", None),
+    ("Key Process Area", r"^KPA named as$", None),
+    (
+        "Capability Construct",
+        r"^Measured/tested as one of the current-study capability constructs$",
+        None,
+    ),
+    (
+        "Building Block",
+        r"^Building block of$",
+        r"Author-defined High-Order Architecture",
+    ),
+    (
+        "Maturity Cluster",
+        r"^Cluster identified across \d+ of \d+ analysed PMMMs$",
+        r"Source-defined maturity cluster",
+    ),
+    (
+        "High-Order Construct",
+        r"^Named high-order construct$",
+        r"Author-defined High-Order Construct",
+    ),
+]
 
 
-def _explicit_parent_group_relation(text: str) -> str:
+def _reported_construct_type_from_row(row: pd.Series) -> str:
     """
-    Accept a parent construct only where the relation explicitly says the
-    lower-level record belongs to / is an item or component under a named
-    structural grouping.
+    High-precision classifier for author-reported PMM structural constructs.
+
+    Inclusion is based on explicit Author_Defined_Relationship values observed
+    in the workbook. Some relationships also require a matching architecture
+    Evidence_Form to prevent lower-level practices being misclassified.
     """
-    low = _text(text).lower()
-    if not low:
+    rel = _text(row.get("Author_Defined_Relationship"))
+    form = _text(row.get("Evidence_Form"))
+    if not rel:
         return ""
-    child_cue = bool(re.search(
-        r"\b(?:item|indicator|criterion|practice|questionnaire|survey item|component|subcomponent|"
-        r"sub-domain|subdomain|belongs to|under|within)\b",
-        low,
-        flags=re.I,
-    ))
-    if not child_cue:
-        return ""
-    for label, pattern in [
-        ("Dimension", r"\bdimensions?\b"),
-        ("Domain", r"\bdomains?\b"),
-        ("Pillar", r"\bpillars?\b"),
-        ("Knowledge Area", r"\bknowledge\s+areas?\b"),
-        ("Management Area", r"\bmanagement\s+areas?\b"),
-        ("Assessment Area", r"\bassessment\s+areas?\b"),
-        ("Capability Area", r"\bcapabilit(?:y|ies)\s+areas?\b"),
-        ("Process Area", r"\bprocess\s+areas?\b"),
-    ]:
-        if re.search(pattern, low, flags=re.I):
-            return label
+    for label, rel_pattern, form_pattern in REPORTED_CONSTRUCT_RELATION_RULES:
+        if not re.fullmatch(rel_pattern, rel, flags=re.I):
+            continue
+        if form_pattern and not re.search(form_pattern, form, flags=re.I):
+            continue
+        return label
     return ""
 
 
 def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
-    High-precision literature architecture extraction.
+    Extract only explicitly source-labelled PMM structural constructs.
 
-    Inclusion requires an explicit structural relationship in
-    Author_Defined_Relationship. Evidence_Form / Source_Component are NOT used
-    to infer a construct type for this chart. This deliberately sacrifices
-    recall to protect the literature-only view from false positives.
+    This deliberately favors precision over recall. It does not infer a
+    Dimension/Domain/Area from generic words in Evidence_Form, Source_Component,
+    free text, or from the semantic appearance of a term.
     """
     ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
     if ev.empty or "Study_ID" not in ev.columns:
@@ -2221,10 +2206,10 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
 
     for col in [
         "Evidence_ID","Study_ID","Original_Author_Term","Author_Parent_Construct",
-        "Author_Defined_Relationship","Meaning_Unit_Verbatim","Printed_Page",
-        "PDF_Page_if_Different","PM_Practice_Maturity_Evidence_Gate",
-        "Evidence_Origin","Gate_Rationale","Analyst_Memo","Source_Fidelity_Status",
-        "Meaning_Unit_Status",
+        "Author_Defined_Relationship","Evidence_Form","Meaning_Unit_Verbatim",
+        "Printed_Page","PDF_Page_if_Different",
+        "PM_Practice_Maturity_Evidence_Gate","Evidence_Origin",
+        "Source_Fidelity_Status","Meaning_Unit_Status",
     ]:
         if col not in ev.columns:
             ev[col] = ""
@@ -2232,56 +2217,34 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
     rows = []
     for _, r in ev.iterrows():
         sid = _text(r.get("Study_ID"))
-        original = _text(r.get("Original_Author_Term"))
-        parent = _text(r.get("Author_Parent_Construct"))
-        rel = _text(r.get("Author_Defined_Relationship"))
-        if not sid or not rel:
+        name = _text(r.get("Original_Author_Term"))
+        if not sid or not name:
             continue
 
-        # Direct case: the author relationship explicitly classifies the
-        # Original_Author_Term as a Dimension / Domain / Pillar / named Area.
-        direct_type = _explicit_direct_group_relation(rel)
-        if direct_type and original and _is_valid_reported_group_name(original):
-            rows.append({
-                "Study_ID": sid,
-                "Reported_Group_Name": original,
-                "Reported_Group_Type": direct_type,
-                "Evidence_Basis": "Explicit author-defined structural relationship",
-                "Evidence_ID": _text(r.get("Evidence_ID")),
-                "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
-                "Author_Relationship_Verbatim": rel,
-                "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
-                "Evidence_Origin": _text(r.get("Evidence_Origin")),
-                "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
-            })
+        construct_type = _reported_construct_type_from_row(r)
+        if not construct_type:
+            continue
+        if not _is_valid_reported_group_name(name):
+            continue
 
-        # Parent case: a lower-level item explicitly belongs to a structural
-        # grouping; the parent construct is therefore recoverable as that group.
-        parent_type = _explicit_parent_group_relation(rel)
-        if parent_type and parent and _is_valid_reported_group_name(parent):
-            rows.append({
-                "Study_ID": sid,
-                "Reported_Group_Name": parent,
-                "Reported_Group_Type": parent_type,
-                "Evidence_Basis": "Parent construct explicitly identified by a lower-level structural relation",
-                "Evidence_ID": _text(r.get("Evidence_ID")),
-                "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
-                "Author_Relationship_Verbatim": rel,
-                "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
-                "Evidence_Origin": _text(r.get("Evidence_Origin")),
-                "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
-            })
+        rows.append({
+            "Study_ID": sid,
+            "Reported_Group_Name": name,
+            "Reported_Group_Type": construct_type,
+            "Author_Parent_Construct": _text(r.get("Author_Parent_Construct")),
+            "Evidence_Basis": "Explicit author-defined structural relationship",
+            "Evidence_ID": _text(r.get("Evidence_ID")),
+            "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
+            "Author_Relationship_Verbatim": _text(r.get("Author_Defined_Relationship")),
+            "Evidence_Form": _text(r.get("Evidence_Form")),
+            "Evidence_Gate": _text(r.get("PM_Practice_Maturity_Evidence_Gate")),
+            "Evidence_Origin": _text(r.get("Evidence_Origin")),
+            "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
+        })
 
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-
-    out["Reported_Group_Name"] = out["Reported_Group_Name"].fillna("").astype(str).str.strip()
-    out["Exclusion_Reason"] = out["Reported_Group_Name"].map(_reported_group_name_exclusion_reason)
-    out = out[
-        out["Reported_Group_Name"].ne("")
-        & out["Exclusion_Reason"].eq("")
-    ].copy()
 
     def join_unique(series):
         vals = []
@@ -2297,16 +2260,64 @@ def build_reported_author_groupings(frames: Dict[str, pd.DataFrame]) -> pd.DataF
             dropna=False,
         )
         .agg(
+            Author_Parent_Constructs=("Author_Parent_Construct", join_unique),
             Evidence_Basis=("Evidence_Basis", join_unique),
             Supporting_Evidence_IDs=("Evidence_ID", join_unique),
             Source_Pages=("Source_Page", join_unique),
             Author_Relationships=("Author_Relationship_Verbatim", join_unique),
+            Evidence_Forms=("Evidence_Form", join_unique),
             Evidence_Gates=("Evidence_Gate", join_unique),
             Evidence_Origins=("Evidence_Origin", join_unique),
             Fidelity_Statuses=("Source_Fidelity_Status", join_unique),
         )
         .reset_index()
     )
+
+
+def build_reported_construct_review_queue(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """
+    Architecture-like records not admitted to the high-precision construct set.
+    They are retained for later manual review instead of being guessed into the chart.
+    """
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    if ev.empty or "Study_ID" not in ev.columns:
+        return pd.DataFrame()
+    for col in [
+        "Evidence_ID","Study_ID","Original_Author_Term","Author_Parent_Construct",
+        "Author_Defined_Relationship","Evidence_Form","Printed_Page",
+        "PDF_Page_if_Different","PM_Practice_Maturity_Evidence_Gate",
+    ]:
+        if col not in ev.columns:
+            ev[col] = ""
+
+    mask = (
+        ev["Evidence_Form"].fillna("").astype(str).str.contains(
+            r"architecture|high-order|cluster|domain|pillar|main factor",
+            case=False, regex=True
+        )
+        | ev["PM_Practice_Maturity_Evidence_Gate"].fillna("").astype(str).str.contains(
+            "Architecture/Provenance", case=False, regex=False
+        )
+    )
+    cand = ev[mask].copy()
+    rows = []
+    for _, r in cand.iterrows():
+        if _reported_construct_type_from_row(r):
+            continue
+        name = _text(r.get("Original_Author_Term"))
+        if not name:
+            continue
+        rows.append({
+            "Study_ID": _text(r.get("Study_ID")),
+            "Candidate_Term": name,
+            "Author_Parent_Construct": _text(r.get("Author_Parent_Construct")),
+            "Author_Defined_Relationship": _text(r.get("Author_Defined_Relationship")),
+            "Evidence_Form": _text(r.get("Evidence_Form")),
+            "Evidence_ID": _text(r.get("Evidence_ID")),
+            "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
+            "Review_Status": "Not shown in literature construct chart — manual classification required",
+        })
+    return pd.DataFrame(rows)
 
 
 def build_aggregate_architecture_statements(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -2395,9 +2406,10 @@ def _render_reported_groups_for_study(
         if not compact:
             with st.expander("Evidence supporting these reported groupings", expanded=False):
                 cols = [
-                    "Reported_Group_Type","Reported_Group_Name","Evidence_Basis",
-                    "Supporting_Evidence_IDs","Source_Pages","Author_Relationships",
-                    "Evidence_Origins","Evidence_Gates","Fidelity_Statuses",
+                    "Reported_Group_Type","Reported_Group_Name","Author_Parent_Constructs",
+                    "Evidence_Basis","Supporting_Evidence_IDs","Source_Pages",
+                    "Author_Relationships","Evidence_Forms","Evidence_Origins",
+                    "Evidence_Gates","Fidelity_Statuses",
                 ]
                 st.dataframe(
                     gg[[c for c in cols if c in gg.columns]],
@@ -2574,6 +2586,16 @@ def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
 - This entire view remains isolated from de novo PCL/Theme/Dimension formation until derivation lock.
 """
         )
+        review_queue = build_reported_construct_review_queue(frames)
+        review_study = review_queue[review_queue["Study_ID"].eq(selected)].copy() if not review_queue.empty else pd.DataFrame()
+        if not review_study.empty:
+            st.markdown("#### Architecture-like source terms withheld from the main literature chart")
+            st.caption(
+                "These records are intentionally not classified as Dimensions/Domains/Areas/Pillars because the source relationship "
+                "does not meet the explicit high-precision rules. They remain available for manual review."
+            )
+            st.dataframe(review_study, use_container_width=True, hide_index=True, height=320)
+
         unresolved = ss[ss["Architecture_Status"].eq("Review required")].copy()
         if not unresolved.empty:
             st.markdown("#### Records requiring whole-study confirmation")
