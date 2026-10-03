@@ -61,7 +61,12 @@ from researcher_cache import (
     clear_cached_master,
 )
 from dimension_export import dimension_trace_workbook_bytes
-from bi_dashboard import render_research_bi_dashboard
+import bi_dashboard as bi_dashboard_module
+
+EXPECTED_BI_DASH_VERSION = "v0.16.5-bi"
+if getattr(bi_dashboard_module, "BI_DASH_VERSION", None) != EXPECTED_BI_DASH_VERSION:
+    bi_dashboard_module = importlib.reload(bi_dashboard_module)
+render_research_bi_dashboard = bi_dashboard_module.render_research_bi_dashboard
 from prisma_dashboard import render_prisma_dashboard
 from evidence_matrix import render_evidence_coverage_matrices
 import importlib
@@ -73,7 +78,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.16.4"
+APP_VERSION = "v0.16.5"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
