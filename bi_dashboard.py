@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.13-bi"
+BI_DASH_VERSION = "v0.16.14-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -2598,6 +2598,210 @@ def render_literature_construct_catalog(frames: Dict[str, pd.DataFrame]) -> None
     )
 
 
+
+def render_literature_architecture_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
+    st.subheader("Literature Architecture")
+    st.caption(
+        "Literature-only view of PMM structures explicitly reported by source studies. "
+        "No PCL, Theme, or Dimension derived by the current study is used on this page."
+    )
+    st.info(
+        "Scope rule: this page reports only constructs admitted by explicit author-defined structural relationships "
+        "in 04_Verbatim_Evidence. Exact names are preserved; synonyms are not merged."
+    )
+
+    groups = build_reported_author_groupings(frames)
+    audit = build_relationship_audit(frames)
+    review_queue = build_reported_construct_review_queue(frames)
+
+    if groups.empty:
+        st.warning("No confirmed literature architecture constructs are available under the current high-precision rules.")
+        if not audit.empty:
+            st.markdown("#### Relationship patterns awaiting review")
+            st.dataframe(audit, use_container_width=True, hide_index=True, height=420)
+        return
+
+    confirmed_studies = int(groups["Study_ID"].nunique())
+    construct_pairs = int(len(groups))
+    exact_names = int(groups["Reported_Group_Name"].astype(str).str.casefold().nunique())
+    construct_types = int(groups["Reported_Group_Type"].nunique())
+    unresolved_patterns = 0
+    if not audit.empty and "Classification" in audit.columns:
+        unresolved_patterns = int(audit["Classification"].eq("Review required").sum())
+
+    k1,k2,k3,k4,k5 = st.columns(5)
+    k1.metric("Studies with confirmed architecture", confirmed_studies)
+    k2.metric("Study × construct pairs", construct_pairs)
+    k3.metric("Distinct exact names", exact_names)
+    k4.metric("Construct types", construct_types)
+    k5.metric("Relationship patterns to review", unresolved_patterns)
+
+    st.markdown("#### What terminology did the literature use?")
+    left,right = st.columns(2)
+
+    type_study = (
+        groups.groupby("Reported_Group_Type")
+        .agg(
+            Studies=("Study_ID","nunique"),
+            Constructs=("Reported_Group_Name","count"),
+        )
+        .reset_index()
+        .sort_values(["Studies","Constructs"],ascending=False)
+    )
+    with left:
+        fig = px.bar(
+            type_study.sort_values("Studies"),
+            x="Studies",
+            y="Reported_Group_Type",
+            orientation="h",
+            text="Studies",
+            hover_data=["Constructs"],
+            title="Studies reporting each structural label",
+        )
+        fig.update_yaxes(title="")
+        fig.update_xaxes(title="Unique studies", dtick=1)
+        fig.update_traces(textposition="outside", cliponaxis=False)
+        fig.update_layout(height=430,margin=dict(l=20,r=60,t=55,b=35))
+        st.plotly_chart(fig,use_container_width=True)
+
+    exact = groups.copy()
+    exact["_name_key"] = exact["Reported_Group_Name"].astype(str).str.casefold()
+    exact_freq = (
+        exact.groupby("_name_key")
+        .agg(
+            Reported_Group_Name=("Reported_Group_Name","first"),
+            Studies=("Study_ID","nunique"),
+            Types=("Reported_Group_Type",lambda x:" | ".join(sorted(set(map(str,x))))),
+            Study_IDs=("Study_ID",lambda x:" | ".join(sorted(set(map(str,x))))),
+        )
+        .reset_index(drop=True)
+        .sort_values(["Studies","Reported_Group_Name"],ascending=[False,True])
+    )
+    with right:
+        top_exact = exact_freq.head(15).copy()
+        fig = px.bar(
+            top_exact.sort_values("Studies"),
+            x="Studies",
+            y="Reported_Group_Name",
+            orientation="h",
+            text="Studies",
+            hover_data=["Types","Study_IDs"],
+            title="Most recurrent exact author-reported construct names",
+        )
+        fig.update_yaxes(title="")
+        fig.update_xaxes(title="Unique studies using the exact name", dtick=1)
+        fig.update_traces(textposition="outside", cliponaxis=False)
+        fig.update_layout(height=430,margin=dict(l=20,r=60,t=55,b=35))
+        st.plotly_chart(fig,use_container_width=True)
+
+    st.caption(
+        "Recurrence is exact-name recurrence only. For example, 'Risk Management' and 'Project Risk Management' remain separate until a later, explicit comparative synthesis."
+    )
+
+    st.markdown("#### Architecture breadth by study")
+    by_study = (
+        groups.groupby("Study_ID")
+        .agg(
+            Confirmed_Constructs=("Reported_Group_Name","count"),
+            Exact_Names=("Reported_Group_Name",lambda x:pd.Series(x).astype(str).str.casefold().nunique()),
+            Construct_Types=("Reported_Group_Type",lambda x:" | ".join(sorted(set(map(str,x))))),
+        )
+        .reset_index()
+        .sort_values(["Confirmed_Constructs","Study_ID"],ascending=[False,True])
+    )
+    top_studies = by_study.head(25).copy()
+    fig = px.bar(
+        top_studies.sort_values("Confirmed_Constructs"),
+        x="Confirmed_Constructs",
+        y="Study_ID",
+        orientation="h",
+        text="Confirmed_Constructs",
+        hover_data=["Exact_Names","Construct_Types"],
+        title="Studies with the largest number of confirmed reported constructs",
+    )
+    fig.update_yaxes(title="")
+    fig.update_xaxes(title="Confirmed source-reported constructs", dtick=1)
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    fig.update_layout(height=max(460, 30*len(top_studies)+130),margin=dict(l=20,r=70,t=55,b=35))
+    st.plotly_chart(fig,use_container_width=True)
+    st.caption(
+        "This is architecture breadth, not study quality. A study with more reported constructs is not necessarily methodologically stronger."
+    )
+
+    st.markdown("#### Study × construct-type matrix")
+    matrix = (
+        groups.assign(Value=1)
+        .pivot_table(
+            index="Study_ID",
+            columns="Reported_Group_Type",
+            values="Value",
+            aggfunc="sum",
+            fill_value=0,
+        )
+    )
+    if not matrix.empty:
+        matrix["Total"] = matrix.sum(axis=1)
+        matrix = matrix.sort_values("Total",ascending=False)
+        show_matrix = matrix.head(40).drop(columns=["Total"])
+        fig = px.imshow(
+            show_matrix,
+            text_auto=True,
+            aspect="auto",
+            labels={"x":"Author-reported structural type","y":"Study ID","color":"Construct count"},
+            title="How each study structures PMM",
+        )
+        fig.update_layout(height=max(520,22*len(show_matrix)+170))
+        st.plotly_chart(fig,use_container_width=True)
+        st.caption(
+            "Cell values are counts of confirmed constructs of that author-reported type within each study."
+        )
+
+    st.markdown("#### Confirmed Study × Construct catalogue")
+    cols = [
+        "Study_ID","Reported_Group_Type","Reported_Group_Name",
+        "Author_Parent_Constructs","Author_Relationships",
+        "Supporting_Evidence_IDs","Source_Pages",
+        "Evidence_Forms","Evidence_Origins","Evidence_Gates",
+    ]
+    st.dataframe(
+        groups[[c for c in cols if c in groups.columns]]
+        .sort_values(["Study_ID","Reported_Group_Type","Reported_Group_Name"]),
+        use_container_width=True,
+        hide_index=True,
+        height=560,
+    )
+
+    st.markdown("#### Withheld / review layer")
+    st.caption(
+        "Architecture-like records that do not yet satisfy a confirmed extraction rule are kept here rather than forced into the literature results."
+    )
+    if not review_queue.empty:
+        r1,r2 = st.columns(2)
+        r1.metric("Withheld architecture-like rows", len(review_queue))
+        r2.metric("Studies represented in review queue", review_queue["Study_ID"].nunique())
+        with st.expander("Review queue records", expanded=False):
+            st.dataframe(
+                review_queue.sort_values(["Study_ID","Author_Defined_Relationship","Candidate_Term"]),
+                use_container_width=True,
+                hide_index=True,
+                height=440,
+            )
+    else:
+        st.success("No architecture-like rows are currently withheld by the review queue.")
+
+    if not audit.empty:
+        with st.expander("Distinct Author_Defined_Relationship patterns", expanded=False):
+            st.dataframe(audit,use_container_width=True,hide_index=True,height=440)
+
+    st.download_button(
+        "Download literature architecture catalogue (CSV)",
+        data=groups.to_csv(index=False).encode("utf-8-sig"),
+        file_name="PMM_literature_architecture_confirmed.csv",
+        mime="text/csv",
+        key="bi_literature_architecture_download",
+    )
+
+
 def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
     st.subheader("Study Architecture Explorer — Pilot")
     st.warning(
@@ -2810,6 +3014,7 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
             "Supervisor Overview",
             "Evidence Base",
             "Evidence Intelligence",
+            "Literature Architecture",
             "Study Architecture Explorer",
             "Dimension Support",
             "Stability & Revisions",
@@ -2831,6 +3036,8 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
         render_evidence_quality(filtered, frames)
     elif page == "Evidence Intelligence":
         render_evidence_intelligence(frames)
+    elif page == "Literature Architecture":
+        render_literature_architecture_dashboard(frames)
     elif page == "Study Architecture Explorer":
         render_study_architecture_explorer(frames)
     elif page == "Dimension Support":
