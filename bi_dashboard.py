@@ -22,6 +22,8 @@ from master_utils import (
 )
 
 
+BI_DASH_VERSION = "v0.16.5-bi"
+
 UNIVERSE_OPTIONS = [
     "All Sources",
     "Profiled Studies",
