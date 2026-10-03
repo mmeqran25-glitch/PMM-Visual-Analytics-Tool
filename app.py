@@ -64,7 +64,7 @@ from researcher_cache import (
 from dimension_export import dimension_trace_workbook_bytes
 import bi_dashboard as bi_dashboard_module
 
-EXPECTED_BI_DASH_VERSION = "v0.16.10-bi"
+EXPECTED_BI_DASH_VERSION = "v0.16.11-bi"
 if getattr(bi_dashboard_module, "BI_DASH_VERSION", None) != EXPECTED_BI_DASH_VERSION:
     bi_dashboard_module = importlib.reload(bi_dashboard_module)
 render_research_bi_dashboard = bi_dashboard_module.render_research_bi_dashboard
@@ -78,7 +78,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.16.10"
+APP_VERSION = "v0.16.11"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
