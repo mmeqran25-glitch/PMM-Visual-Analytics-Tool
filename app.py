@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import base64
 import html
 from pathlib import Path
@@ -69,7 +70,6 @@ if getattr(bi_dashboard_module, "BI_DASH_VERSION", None) != EXPECTED_BI_DASH_VER
 render_research_bi_dashboard = bi_dashboard_module.render_research_bi_dashboard
 from prisma_dashboard import render_prisma_dashboard
 from evidence_matrix import render_evidence_coverage_matrices
-import importlib
 import qualitative_visuals as qualitative_visuals_module
 
 EXPECTED_QUAL_VIS_VERSION = "v0.15.5"
