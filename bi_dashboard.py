@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.5-bi"
+BI_DASH_VERSION = "v0.16.6-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -1693,6 +1693,436 @@ def render_evidence_intelligence(frames: Dict[str, pd.DataFrame]) -> None:
     )
 
 
+
+ARCHITECTURE_LABEL_RULES = [
+    ("Dimension", r"\bdimensions?\b"),
+    ("Domain", r"\bdomains?\b"),
+    ("Pillar", r"\bpillars?\b"),
+    ("Capability Area", r"\bcapabilit(?:y|ies)\s+areas?\b"),
+    ("Process Area", r"\bprocess\s+areas?\b"),
+    ("Component", r"\bcomponents?\b"),
+    ("Factor", r"\bfactors?\b"),
+    ("Criterion", r"\bcriteri(?:on|a)\b"),
+    ("Indicator / Index", r"\bindicators?\b|\bindexes?\b|\bindices\b"),
+    ("Questionnaire / Scale Item", r"\bquestionnaire\b|\bscale\s+items?\b|\bsurvey\s+items?\b|\bitems?\b"),
+    ("Maturity Level / Stage", r"\bmaturity\s+levels?\b|\blevels?\b|\bstages?\b"),
+]
+
+
+def _architecture_label_type(row: pd.Series) -> tuple[str, str]:
+    """Return an author-label type only when the workbook text explicitly supports it."""
+    fields = [
+        ("Author_Defined_Relationship", _text(row.get("Author_Defined_Relationship"))),
+        ("Evidence_Form", _text(row.get("Evidence_Form"))),
+        ("Source_Component", _text(row.get("Source_Component"))),
+    ]
+    for field_name, value in fields:
+        low = value.lower()
+        if not low:
+            continue
+        for label, pattern in ARCHITECTURE_LABEL_RULES:
+            if re.search(pattern, low, flags=re.I):
+                return label, field_name
+    return "Unclassified / Review", ""
+
+
+def _architecture_view_type(row: pd.Series) -> str:
+    blob = " ".join([
+        _text(row.get("Evidence_Form")),
+        _text(row.get("Source_Component")),
+        _text(row.get("Author_Defined_Relationship")),
+        _text(row.get("Author_Parent_Construct")),
+    ]).lower()
+    if re.search(r"questionnaire|survey item|scale item|instrument|assessment|measurement|indicator|operationali", blob):
+        return "Assessment / Measurement Architecture"
+    if re.search(r"maturity level|progression|progressive|stage\b|standardize|measure|control|continuously improve", blob):
+        return "Maturity Progression"
+    if re.search(r"dimension|domain|pillar|capability area|process area|component|model architecture|framework architecture", blob):
+        return "Conceptual / Model Architecture"
+    return "Unclassified / Review"
+
+
+def _normalized_structural_role(label: str, row: pd.Series) -> str:
+    """Broad role only; does not force an L1/L2 hierarchy."""
+    if label in {"Dimension", "Domain", "Pillar", "Capability Area", "Process Area"}:
+        return "Architecture grouping — relative level requires confirmation"
+    if label in {"Component", "Factor"}:
+        return "Component / grouping candidate — level requires confirmation"
+    if label == "Criterion":
+        return "Assessment criterion"
+    if label == "Indicator / Index":
+        return "Measurement indicator"
+    if label == "Questionnaire / Scale Item":
+        return "Questionnaire / scale item"
+    if label == "Maturity Level / Stage":
+        return "Progression / maturity level"
+    form = _text(row.get("Evidence_Form")).lower()
+    if any(x in form for x in ["practice", "capability"]):
+        return "Operational capability / practice"
+    if any(x in form for x in ["gap", "failure", "deficien"]):
+        return "Gap / immature-state evidence"
+    return "Unclassified / Review"
+
+
+def _construct_origin_type(row: pd.Series) -> tuple[str, str]:
+    """Conservative provenance reading from explicit workbook text; no hidden inference."""
+    sources = [
+        _text(row.get("Evidence_Origin")),
+        _text(row.get("Gate_Rationale")),
+        _text(row.get("Analyst_Memo")),
+        _text(row.get("Author_Defined_Relationship")),
+    ]
+    blob = " ".join(sources).lower()
+    named = []
+    for name, pattern in [
+        ("PMBOK", r"\bpmbok\b"),
+        ("OPM3", r"\bopm3\b"),
+        ("P3M3", r"\bp3m3\b"),
+        ("Kerzner", r"\bkerzner\b"),
+        ("CMMI", r"\bcmmi\b"),
+    ]:
+        if re.search(pattern, blob, flags=re.I):
+            named.append(name)
+    if named:
+        return "Inherited / adapted from named prior framework", ", ".join(named)
+    if re.search(r"author[- ]developed|developed by (the )?authors?|current[- ]study.*develop", blob):
+        return "Current study / author-developed", ""
+    if re.search(r"literature[- ]derived|derived from (the )?literature|literature review|prior literature", blob):
+        return "Prior literature / synthesis", ""
+    if re.search(r"adapted from|adopted from|inherited from|borrowed from", blob):
+        return "Inherited / adapted from prior source", ""
+    if re.search(r"professional standard|professional framework|standard-based", blob):
+        return "Professional standard / framework", ""
+    return "Unresolved / review", ""
+
+
+def _current_study_role(row: pd.Series) -> str:
+    blob = " ".join([
+        _text(row.get("Evidence_Origin")),
+        _text(row.get("Gate_Rationale")),
+        _text(row.get("Analyst_Memo")),
+        _text(row.get("Source_Component")),
+    ]).lower()
+    if re.search(r"author[- ]developed|model development|framework development|developed by", blob):
+        return "Developed / constructed"
+    if re.search(r"adapted|adopted|extended|extension", blob):
+        return "Adapted / extended"
+    if re.search(r"validated|validation", blob):
+        return "Validated"
+    if re.search(r"empirical|survey|interview|focus group|case study|tested|testing", blob):
+        return "Tested / applied empirically"
+    if re.search(r"literature review|synthesi|literature[- ]derived", blob):
+        return "Synthesized from prior literature"
+    return "Unresolved / review"
+
+
+def build_author_architecture_candidates(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """
+    Read-only pilot reconstruction of source-study architecture from 04_Verbatim_Evidence.
+    It preserves author wording and deliberately leaves ambiguous hierarchy unresolved.
+    """
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame()).copy()
+    if ev.empty or "Study_ID" not in ev.columns:
+        return pd.DataFrame()
+
+    needed = [
+        "Evidence_ID","Study_ID","Printed_Page","PDF_Page_if_Different","Section_or_Item",
+        "Source_Component","Author_Parent_Construct","Author_Defined_Relationship",
+        "Meaning_Unit_Verbatim","Original_Author_Term","Meaning_Unit_Status",
+        "Evidence_Form","Conceptual_Role","Evidence_Origin",
+        "PM_Practice_Maturity_Evidence_Gate","Gate_Rationale","Explicitness",
+        "Source_Fidelity_Status","Analyst_Memo",
+    ]
+    for col in needed:
+        if col not in ev.columns:
+            ev[col] = ""
+
+    ev["Study_ID"] = ev["Study_ID"].fillna("").astype(str).str.strip()
+    ev = ev[ev["Study_ID"].ne("")].copy()
+
+    rows = []
+    for _, r in ev.iterrows():
+        original = _text(r.get("Original_Author_Term"))
+        parent = _text(r.get("Author_Parent_Construct"))
+        relationship = _text(r.get("Author_Defined_Relationship"))
+        form = _text(r.get("Evidence_Form"))
+        component = _text(r.get("Source_Component"))
+        gate = _text(r.get("PM_Practice_Maturity_Evidence_Gate"))
+
+        structural_blob = " ".join([relationship, form, component, parent]).lower()
+        is_candidate = bool(
+            (original and parent)
+            or re.search(
+                r"dimension|domain|pillar|capability area|process area|component|factor|criterion|indicator|"
+                r"questionnaire|scale item|maturity level|progression|architecture|provenance|assessment",
+                structural_blob,
+                flags=re.I,
+            )
+            or "architecture/provenance" in gate.lower()
+        )
+        if not is_candidate:
+            continue
+
+        label, label_basis = _architecture_label_type(r)
+        view = _architecture_view_type(r)
+        role = _normalized_structural_role(label, r)
+        origin, source_model = _construct_origin_type(r)
+        study_role = _current_study_role(r)
+
+        if label == "Questionnaire / Scale Item":
+            level = "Measurement item — relative level not forced"
+        elif label == "Indicator / Index":
+            level = "Indicator — relative level not forced"
+        elif label == "Maturity Level / Stage":
+            level = "Progression level — separate from construct hierarchy"
+        else:
+            level = "Unresolved — requires whole-study confirmation"
+
+        if label != "Unclassified / Review":
+            explicitness = "Explicit structural label"
+            status = "Pilot explicit"
+        elif parent and original:
+            explicitness = "Reconstructable relation candidate"
+            status = "Review required"
+        else:
+            explicitness = "Ambiguous"
+            status = "Review required"
+
+        system_suffix = {
+            "Conceptual / Model Architecture": "CONCEPT",
+            "Assessment / Measurement Architecture": "ASSESS",
+            "Maturity Progression": "PROGRESSION",
+            "Unclassified / Review": "REVIEW",
+        }.get(view, "REVIEW")
+
+        rows.append({
+            "Study_ID": _text(r.get("Study_ID")),
+            "Architecture_System_ID": f"{_text(r.get('Study_ID'))}-{system_suffix}",
+            "Architecture_View_Type": view,
+            "Architecture_Unit_Verbatim": original or _text(r.get("Meaning_Unit_Verbatim")),
+            "Author_Label_Type": label,
+            "Author_Label_Basis": label_basis,
+            "Normalized_Structural_Role": role,
+            "Architecture_Level": level,
+            "Author_Parent_Construct_Verbatim": parent,
+            "Author_Relationship_Verbatim": relationship,
+            "Current_Study_Role": study_role,
+            "Construct_Origin_Type": origin,
+            "Source_Model_or_Framework": source_model,
+            "Architecture_Explicitness": explicitness,
+            "Architecture_Status": status,
+            "Evidence_ID": _text(r.get("Evidence_ID")),
+            "Source_Page": _text(r.get("Printed_Page")) or _text(r.get("PDF_Page_if_Different")),
+            "Section_or_Item": _text(r.get("Section_or_Item")),
+            "Evidence_Form": form,
+            "Evidence_Origin_Verbatim": _text(r.get("Evidence_Origin")),
+            "Evidence_Gate": gate,
+            "Conceptual_Role": _text(r.get("Conceptual_Role")),
+            "Source_Fidelity_Status": _text(r.get("Source_Fidelity_Status")),
+            "Current_Use_Restriction": (
+                "Descriptive / provenance only — quarantined from de novo PCL, Theme, and Dimension formation"
+            ),
+        })
+
+    raw = pd.DataFrame(rows)
+    if raw.empty:
+        return raw
+
+    keys = [
+        "Study_ID","Architecture_System_ID","Architecture_View_Type",
+        "Architecture_Unit_Verbatim","Author_Label_Type",
+        "Normalized_Structural_Role","Architecture_Level",
+        "Author_Parent_Construct_Verbatim","Author_Relationship_Verbatim",
+        "Current_Study_Role","Construct_Origin_Type","Source_Model_or_Framework",
+        "Architecture_Explicitness","Architecture_Status","Current_Use_Restriction",
+    ]
+
+    def join_unique(series):
+        vals = []
+        for v in series:
+            t = _text(v)
+            if t and t not in vals:
+                vals.append(t)
+        return " | ".join(vals)
+
+    agg = (
+        raw.groupby(keys, dropna=False)
+        .agg(
+            Supporting_Evidence_IDs=("Evidence_ID", join_unique),
+            Source_Pages=("Source_Page", join_unique),
+            Sections=("Section_or_Item", join_unique),
+            Evidence_Forms=("Evidence_Form", join_unique),
+            Evidence_Origins=("Evidence_Origin_Verbatim", join_unique),
+            Evidence_Gates=("Evidence_Gate", join_unique),
+            Conceptual_Roles=("Conceptual_Role", join_unique),
+            Fidelity_Statuses=("Source_Fidelity_Status", join_unique),
+        )
+        .reset_index()
+    )
+    agg.insert(0, "Architecture_Record_ID", [f"AA-{i:05d}" for i in range(1, len(agg)+1)])
+    return agg
+
+
+def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
+    st.subheader("Study Architecture Explorer — Pilot")
+    st.warning(
+        "Methodological quarantine: this view reconstructs structures reported by source studies for descriptive, "
+        "provenance, and later comparative use only. It must not inform or revise the de novo PCL → Theme → Dimension "
+        "formation until that derivation is formally closed."
+    )
+
+    arch = build_author_architecture_candidates(frames)
+    if arch.empty:
+        st.info("No source-architecture candidates could be reconstructed from 04_Verbatim_Evidence.")
+        return
+
+    studies = sorted(arch["Study_ID"].dropna().astype(str).unique().tolist())
+    preferred = ["SR067","SR051","SR403","SR875","SR018"]
+    default_study = next((x for x in preferred if x in studies), studies[0])
+    selected = st.selectbox(
+        "Study",
+        studies,
+        index=studies.index(default_study),
+        key="bi_architecture_study",
+    )
+    ss = arch[arch["Study_ID"].eq(selected)].copy()
+
+    explicit = int(ss["Architecture_Status"].eq("Pilot explicit").sum())
+    review = int(ss["Architecture_Status"].eq("Review required").sum())
+    views = int(ss["Architecture_View_Type"].nunique())
+    parents = int(
+        ss["Author_Parent_Construct_Verbatim"].fillna("").astype(str).str.strip()
+        .replace("", pd.NA).dropna().nunique()
+    )
+    frameworks = sorted(
+        set(
+            x.strip()
+            for cell in ss["Source_Model_or_Framework"].fillna("").astype(str)
+            for x in cell.split(",")
+            if x.strip()
+        )
+    )
+
+    a,b,c,d,e = st.columns(5)
+    a.metric("Architecture units", len(ss))
+    b.metric("Explicitly labelled", explicit)
+    c.metric("Require review", review)
+    d.metric("Architecture views", views)
+    e.metric("Reported parent constructs", parents)
+
+    if frameworks:
+        st.caption("Named prior frameworks explicitly detected in provenance text: " + ", ".join(frameworks))
+
+    tabs = st.tabs([
+        "Reported Architecture",
+        "Views & Provenance",
+        "Source Evidence",
+        "Schema / Guardrails",
+    ])
+
+    with tabs[0]:
+        st.markdown("#### Source-native architecture units")
+        st.caption(
+            "Author wording is preserved. Architecture_Level remains unresolved unless the workbook explicitly supports "
+            "a relative position; the pilot does not manufacture L1/L2 links."
+        )
+        higher = ss[
+            ss["Author_Label_Type"].isin(
+                ["Dimension","Domain","Pillar","Capability Area","Process Area","Component","Factor"]
+            )
+        ].copy()
+        if not higher.empty:
+            show = [
+                "Architecture_Record_ID","Architecture_View_Type","Architecture_Unit_Verbatim",
+                "Author_Label_Type","Author_Parent_Construct_Verbatim",
+                "Author_Relationship_Verbatim","Construct_Origin_Type",
+                "Source_Model_or_Framework","Architecture_Status","Supporting_Evidence_IDs",
+            ]
+            st.dataframe(higher[[c for c in show if c in higher.columns]], use_container_width=True, hide_index=True)
+        else:
+            st.info("No explicitly labelled higher/grouping architecture units were detected for this study.")
+
+        lower = ss[
+            ss["Author_Label_Type"].isin(
+                ["Criterion","Indicator / Index","Questionnaire / Scale Item","Maturity Level / Stage"]
+            )
+            | ss["Normalized_Structural_Role"].isin(
+                ["Operational capability / practice","Assessment criterion","Measurement indicator",
+                 "Questionnaire / scale item","Progression / maturity level"]
+            )
+        ].copy()
+        if not lower.empty:
+            with st.expander("Lower-level criteria, indicators, items, practices, and progression records", expanded=False):
+                show = [
+                    "Architecture_Record_ID","Architecture_Unit_Verbatim","Author_Label_Type",
+                    "Normalized_Structural_Role","Author_Parent_Construct_Verbatim",
+                    "Author_Relationship_Verbatim","Evidence_Gates","Source_Pages",
+                ]
+                st.dataframe(lower[[c for c in show if c in lower.columns]], use_container_width=True, hide_index=True, height=480)
+
+    with tabs[1]:
+        view_counts = (
+            ss.groupby(["Architecture_View_Type","Construct_Origin_Type"])
+            .size().reset_index(name="Architecture units")
+            .sort_values("Architecture units", ascending=False)
+        )
+        if not view_counts.empty:
+            fig = px.bar(
+                view_counts,
+                x="Architecture units",y="Architecture_View_Type",
+                color="Construct_Origin_Type",orientation="h",
+                title=f"{selected}: architecture views × provenance reading",
+            )
+            fig.update_yaxes(title="")
+            fig.update_layout(height=420)
+            st.plotly_chart(fig,use_container_width=True)
+
+        prov_cols = [
+            "Architecture_Record_ID","Architecture_Unit_Verbatim","Architecture_View_Type",
+            "Current_Study_Role","Construct_Origin_Type","Source_Model_or_Framework",
+            "Evidence_Origins","Architecture_Explicitness",
+        ]
+        st.dataframe(ss[[c for c in prov_cols if c in ss.columns]],use_container_width=True,hide_index=True,height=440)
+
+    with tabs[2]:
+        raw_cols = [
+            "Architecture_Record_ID","Architecture_Unit_Verbatim","Author_Parent_Construct_Verbatim",
+            "Author_Relationship_Verbatim","Supporting_Evidence_IDs","Source_Pages","Sections",
+            "Evidence_Forms","Evidence_Gates","Conceptual_Roles","Fidelity_Statuses",
+        ]
+        st.dataframe(ss[[c for c in raw_cols if c in ss.columns]],use_container_width=True,hide_index=True,height=520)
+        st.download_button(
+            "Download selected study architecture (CSV)",
+            data=ss.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"{selected}_author_architecture_pilot.csv",
+            mime="text/csv",
+            key="bi_architecture_download",
+        )
+
+    with tabs[3]:
+        st.markdown(
+            """
+**Pilot interpretation rules**
+
+- Author terminology is preserved verbatim; normalization never replaces it.
+- A word such as *Dimension*, *Domain*, *Pillar*, or *Factor* does not by itself determine an L1/L2 position.
+- A parent-child link is not created unless source fields support it.
+- Measurement items and indicators are not treated as constructs merely because they sit beneath a construct.
+- Inherited PMBOK/OPM3/P3M3/Kerzner/CMMI architecture is flagged as provenance, not independent construct discovery.
+- Repetition of the same source-native unit across Evidence rows is aggregated rather than double-counted.
+- Review required is a legitimate outcome; the pilot prefers unresolved structure to an invented hierarchy.
+- This entire view remains isolated from de novo PCL/Theme/Dimension formation until derivation lock.
+"""
+        )
+        unresolved = ss[ss["Architecture_Status"].eq("Review required")].copy()
+        if not unresolved.empty:
+            st.markdown("#### Records requiring whole-study confirmation")
+            cols = [
+                "Architecture_Record_ID","Architecture_Unit_Verbatim","Author_Parent_Construct_Verbatim",
+                "Author_Relationship_Verbatim","Evidence_Forms","Supporting_Evidence_IDs",
+            ]
+            st.dataframe(unresolved[[c for c in cols if c in unresolved.columns]],use_container_width=True,hide_index=True,height=340)
+
 def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown(
         '<div class="note-banner"><b>Research Evidence BI Dashboard:</b> '
@@ -1713,6 +2143,7 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
             "Supervisor Overview",
             "Evidence Base",
             "Evidence Intelligence",
+            "Study Architecture Explorer",
             "Dimension Support",
             "Stability & Revisions",
             "Gaps & Integrity",
@@ -1733,6 +2164,8 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
         render_evidence_quality(filtered, frames)
     elif page == "Evidence Intelligence":
         render_evidence_intelligence(frames)
+    elif page == "Study Architecture Explorer":
+        render_study_architecture_explorer(frames)
     elif page == "Dimension Support":
         render_dimension_support_bi(frames)
     elif page == "Stability & Revisions":
