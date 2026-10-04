@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.15-bi"
+BI_DASH_VERSION = "v0.16.16-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -3267,25 +3267,53 @@ def render_study_profile_intelligence(
 
         c3,c4 = st.columns(2)
         with c3:
-            countries = (
+            countries_all = (
                 view["Country_Context"].fillna("").astype(str).str.strip()
                 .replace("",pd.NA).dropna()
-                .value_counts().head(15)
+                .value_counts()
                 .rename_axis("Country / context label")
                 .reset_index(name="Studies")
             )
-            if not countries.empty:
+            if not countries_all.empty:
+                country_display = st.selectbox(
+                    "Country/context labels to display",
+                    ["Top 15","Top 30","All"],
+                    index=0,
+                    key="bi_profile_country_display",
+                    help="All exact Country_Context values remain available; this control only changes how many bars are drawn.",
+                )
+                if country_display == "Top 15":
+                    countries = countries_all.head(15).copy()
+                elif country_display == "Top 30":
+                    countries = countries_all.head(30).copy()
+                else:
+                    countries = countries_all.copy()
+
                 fig = px.bar(
-                    countries.sort_values("Studies"),
+                    countries.sort_values(["Studies","Country / context label"]),
                     x="Studies",y="Country / context label",orientation="h",
                     text="Studies",
-                    title="Most represented exact country/context labels",
+                    title="Exact Country_Context values from 03_Study_Profile",
                 )
                 fig.update_yaxes(title="")
                 fig.update_xaxes(title="Studies",dtick=1)
                 fig.update_traces(textposition="outside",cliponaxis=False)
-                fig.update_layout(height=500,margin=dict(l=20,r=60,t=55,b=35))
+                fig.update_layout(
+                    height=max(500, 24*len(countries)+140),
+                    margin=dict(l=20,r=60,t=55,b=35),
+                )
                 st.plotly_chart(fig,use_container_width=True)
+                st.caption(
+                    f"{len(countries_all)} distinct populated Country_Context labels exist in the selected scope. "
+                    "Top-N display is only a visual convenience; it does not remove records from the analysis."
+                )
+                with st.expander("All exact Country_Context values", expanded=False):
+                    st.dataframe(
+                        countries_all,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=520,
+                    )
 
         with c4:
             sector = view.copy()
