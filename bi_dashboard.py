@@ -22,7 +22,7 @@ from master_utils import (
 )
 
 
-BI_DASH_VERSION = "v0.16.14-bi"
+BI_DASH_VERSION = "v0.16.15-bi"
 
 UNIVERSE_OPTIONS = [
     "All Sources",
@@ -2994,6 +2994,496 @@ def render_study_architecture_explorer(frames: Dict[str, pd.DataFrame]) -> None:
             ]
             st.dataframe(unresolved[[c for c in cols if c in unresolved.columns]],use_container_width=True,hide_index=True,height=340)
 
+
+def _study_profile_frame(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    profile = frames.get("03_Study_Profile", pd.DataFrame()).copy()
+    if profile.empty or "Study_ID" not in profile.columns:
+        return pd.DataFrame()
+
+    expected = [
+        "Study_Profile_ID","Study_ID","Title","Authors","Year","Country_Context",
+        "Sector_Context","Organization_Level","Study_Design","Methodological_Family",
+        "PMM_Model_or_Framework","Sample_or_Data_Source","Unit_of_Analysis",
+        "Capability_Evidence_Location","Evidence_Source_Role","Study_Family_ID",
+        "Transferability_or_Context_Note","Profile_Status","Reviewer","Review_Date",
+        "Notes","Source_Record_Type_DEC510","Independent_Evidence_Unit_ID_DEC510",
+        "Independent_Evidence_Unit_Label_DEC510","Final_Canonical_126_Flag",
+        "Final_Canonical_126_Status","Evidence_Record_Count","Pass_Evidence_Count",
+        "Active_Pass_FOC_Count","Derivation_Contribution","Final_Analytical_Status",
+        "Final_Status_Reason",
+    ]
+    for col in expected:
+        if col not in profile.columns:
+            profile[col] = ""
+
+    profile["Study_ID"] = profile["Study_ID"].fillna("").astype(str).str.strip()
+    profile = profile[profile["Study_ID"].ne("")].copy()
+
+    for col in ["Evidence_Record_Count","Pass_Evidence_Count","Active_Pass_FOC_Count","Year"]:
+        profile[col] = pd.to_numeric(profile[col], errors="coerce")
+
+    profile["_Is_Canonical"] = (
+        profile["Final_Canonical_126_Status"]
+        .fillna("").astype(str).str.strip()
+        .str.startswith("Yes")
+    )
+    profile["_Is_Derivation_Contributor"] = (
+        profile["Final_Analytical_Status"]
+        .fillna("").astype(str).str.strip()
+        .eq("Canonical contributor to derivation")
+    )
+    profile["_Is_Canonical_Supporting"] = (
+        profile["Final_Analytical_Status"]
+        .fillna("").astype(str).str.strip()
+        .eq("Canonical supporting/provenance only")
+    )
+    return profile
+
+
+def _profile_method_group(row: pd.Series) -> str:
+    """Display-only broad methodology grouping; does not overwrite MASTER classifications."""
+    text = " ".join([
+        _text(row.get("Study_Design")),
+        _text(row.get("Methodological_Family")),
+    ]).lower()
+
+    if re.search(r"mixed[- ]method|mixed methods|multi-method|triangulat", text):
+        return "Mixed methods / multi-method"
+    if re.search(r"systematic review|literature review|scoping review|review / synthesis|secondary synthesis|content-analysis synthesis", text):
+        return "Review / secondary synthesis"
+    if re.search(r"professional standard|standards-based|normative model|professional framework", text):
+        return "Professional standard / framework"
+    if re.search(r"conceptual|model development|model-development|framework development|design science|design-science", text):
+        # Preserve empirical validation cases as model-development family rather than forcing them to pure qualitative/quantitative.
+        return "Conceptual / model development"
+    if re.search(r"quantitative|pls-sem|sem\b|regression|correlation|correlational|factor analysis|anova|t-test|questionnaire survey|cross-sectional survey", text):
+        return "Quantitative empirical"
+    if re.search(r"qualitative|interview|focus group|case study|case-study|thematic analysis|document review", text):
+        return "Qualitative empirical"
+    if re.search(r"survey|questionnaire", text):
+        return "Quantitative empirical"
+    return "Other / hybrid"
+
+
+def _profile_sector_group(value: str) -> str:
+    """Display-only keyword grouping for sector context; exact source wording remains available in the explorer."""
+    t = _text(value).lower()
+    if not t:
+        return "Unspecified"
+    if re.search(r"cross-sector|cross-industry|multi-sector|general project|generic organizational|multiple industr", t):
+        return "Cross-sector / general"
+    if re.search(r"telecom|telecommunication|ict|information technology|software|digital|data-centre|data center|cloud", t):
+        return "ICT / telecom / digital"
+    if re.search(r"construction|engineering|infrastructure|megaproject|contractor|built environment", t):
+        return "Construction / engineering / infrastructure"
+    if re.search(r"power|electric|energy|oil|gas|petrochemical|utility", t):
+        return "Energy / power / oil & gas"
+    if re.search(r"public|government|ministry|municipal|administration", t):
+        return "Public sector / government"
+    if re.search(r"health|hospital|pharma|biotech|medical", t):
+        return "Health / pharma / biotech"
+    if re.search(r"manufactur|automotive|industrial|production", t):
+        return "Manufacturing / industrial"
+    if re.search(r"bank|financial|finance|insurance", t):
+        return "Finance / banking"
+    if re.search(r"education|university|academic|research", t):
+        return "Education / research"
+    return "Other specific sectors"
+
+
+def render_study_profile_intelligence(
+    frames: Dict[str, pd.DataFrame],
+    filtered_catalog: pd.DataFrame | None = None,
+) -> None:
+    st.subheader("Study Profile Intelligence")
+    st.caption(
+        "Supervisor-facing analysis derived from 03_Study_Profile. "
+        "It describes who the studies are, how they were designed, what role each one played in the analysis, "
+        "and where source-family dependence must be controlled."
+    )
+
+    profile = _study_profile_frame(frames)
+    if profile.empty:
+        st.info("03_Study_Profile is empty or unavailable.")
+        return
+
+    current_ids = set()
+    if filtered_catalog is not None and not filtered_catalog.empty and "Study_ID" in filtered_catalog.columns:
+        current_ids = set(filtered_catalog["Study_ID"].dropna().astype(str).str.strip())
+        current_ids.discard("")
+
+    scope_options = [
+        "Final canonical corpus",
+        "All profiled studies",
+        "Current BI filters ∩ profiled studies",
+    ]
+    scope = st.radio(
+        "Profile scope",
+        scope_options,
+        horizontal=True,
+        key="bi_profile_scope",
+        help="Final canonical corpus is the recommended supervisor-facing default.",
+    )
+
+    if scope == "Final canonical corpus":
+        view = profile[profile["_Is_Canonical"]].copy()
+    elif scope == "Current BI filters ∩ profiled studies" and current_ids:
+        view = profile[profile["Study_ID"].isin(current_ids)].copy()
+    else:
+        view = profile.copy()
+
+    if view.empty:
+        st.info("No Study Profile records match the selected scope.")
+        return
+
+    canonical_n = int(view["_Is_Canonical"].sum())
+    contrib_n = int(view["_Is_Derivation_Contributor"].sum())
+    supporting_n = int(view["_Is_Canonical_Supporting"].sum())
+    evidence_total = int(view["Evidence_Record_Count"].fillna(0).sum())
+    pass_total = int(view["Pass_Evidence_Count"].fillna(0).sum())
+
+    k1,k2,k3,k4,k5,k6 = st.columns(6)
+    k1.metric("Study profiles", len(view))
+    k2.metric("Final canonical", canonical_n)
+    k3.metric("Derivation contributors", contrib_n)
+    k4.metric("Canonical supporting only", supporting_n)
+    k5.metric("Evidence records", f"{evidence_total:,}")
+    k6.metric("Pass evidence", f"{pass_total:,}")
+
+    if scope == "Final canonical corpus":
+        st.info(
+            "Canonical interpretation: a study can belong to the final canonical corpus without directly voting in dimension formation. "
+            "Canonical contributors supply Pass FOCs; canonical supporting/provenance studies remain analytically useful without a direct derivation vote."
+        )
+
+    tabs = st.tabs([
+        "Corpus Composition",
+        "Methodology & Context",
+        "Evidence Contribution",
+        "Provenance & Dependency",
+        "Study Explorer",
+    ])
+
+    with tabs[0]:
+        st.markdown("#### Analytical role of profiled studies")
+        analytical = (
+            view["Final_Analytical_Status"].fillna("").astype(str).str.strip()
+            .replace("", "Unspecified")
+            .value_counts()
+            .rename_axis("Final analytical status")
+            .reset_index(name="Studies")
+        )
+        fig = px.bar(
+            analytical.sort_values("Studies"),
+            x="Studies",
+            y="Final analytical status",
+            orientation="h",
+            text="Studies",
+            title="Final analytical role of Study Profile records",
+        )
+        fig.update_yaxes(title="")
+        fig.update_xaxes(title="Studies", dtick=1)
+        fig.update_traces(textposition="outside", cliponaxis=False)
+        fig.update_layout(height=max(380, 42*len(analytical)+120), margin=dict(l=20,r=65,t=55,b=35))
+        st.plotly_chart(fig,use_container_width=True)
+
+        st.markdown("#### Metadata completeness")
+        completeness_fields = [
+            "Country_Context","Sector_Context","Organization_Level","Study_Design",
+            "Methodological_Family","PMM_Model_or_Framework","Sample_or_Data_Source",
+            "Unit_of_Analysis","Capability_Evidence_Location","Evidence_Source_Role",
+            "Study_Family_ID","Transferability_or_Context_Note","Final_Status_Reason",
+        ]
+        rows=[]
+        for col in completeness_fields:
+            populated = int(view[col].fillna("").astype(str).str.strip().ne("").sum())
+            rows.append({
+                "Field": col,
+                "Populated": populated,
+                "Missing": int(len(view)-populated),
+                "Completeness (%)": populated/len(view)*100 if len(view) else 0,
+            })
+        comp = pd.DataFrame(rows).sort_values(["Completeness (%)","Field"],ascending=[True,True])
+        fig = px.bar(
+            comp,
+            x="Completeness (%)",
+            y="Field",
+            orientation="h",
+            text=comp["Completeness (%)"].map(lambda x:f"{x:.1f}%"),
+            title="Study Profile metadata completeness",
+        )
+        fig.update_yaxes(title="")
+        fig.update_xaxes(range=[0,105],title="Completeness (%)")
+        fig.update_traces(textposition="outside",cliponaxis=False)
+        fig.update_layout(height=520,margin=dict(l=20,r=70,t=55,b=35))
+        st.plotly_chart(fig,use_container_width=True)
+        st.caption(
+            "Completeness indicates documentation coverage, not methodological quality."
+        )
+
+    with tabs[1]:
+        meth = view.copy()
+        meth["_Broad_Methodology"] = meth.apply(_profile_method_group,axis=1)
+        method_counts = (
+            meth["_Broad_Methodology"].value_counts()
+            .rename_axis("Broad methodology")
+            .reset_index(name="Studies")
+        )
+
+        c1,c2 = st.columns(2)
+        with c1:
+            fig = px.bar(
+                method_counts.sort_values("Studies"),
+                x="Studies",y="Broad methodology",orientation="h",
+                text="Studies",
+                title="Broad methodological landscape",
+            )
+            fig.update_yaxes(title="")
+            fig.update_xaxes(title="Studies",dtick=1)
+            fig.update_traces(textposition="outside",cliponaxis=False)
+            fig.update_layout(height=430,margin=dict(l=20,r=60,t=55,b=35))
+            st.plotly_chart(fig,use_container_width=True)
+            st.caption(
+                "Display-only keyword grouping derived from Study_Design + Methodological_Family; original wording remains unchanged in the MASTER."
+            )
+
+        with c2:
+            years = (
+                view.dropna(subset=["Year"])
+                .groupby("Year")["Study_ID"].nunique()
+                .reset_index(name="Studies")
+                .sort_values("Year")
+            )
+            if not years.empty:
+                years["Year"] = years["Year"].astype(int)
+                fig = px.line(
+                    years,x="Year",y="Studies",markers=True,
+                    title="Publication-year profile of selected studies",
+                )
+                fig.update_xaxes(dtick=2)
+                fig.update_yaxes(title="Studies")
+                fig.update_layout(height=430)
+                st.plotly_chart(fig,use_container_width=True)
+
+        c3,c4 = st.columns(2)
+        with c3:
+            countries = (
+                view["Country_Context"].fillna("").astype(str).str.strip()
+                .replace("",pd.NA).dropna()
+                .value_counts().head(15)
+                .rename_axis("Country / context label")
+                .reset_index(name="Studies")
+            )
+            if not countries.empty:
+                fig = px.bar(
+                    countries.sort_values("Studies"),
+                    x="Studies",y="Country / context label",orientation="h",
+                    text="Studies",
+                    title="Most represented exact country/context labels",
+                )
+                fig.update_yaxes(title="")
+                fig.update_xaxes(title="Studies",dtick=1)
+                fig.update_traces(textposition="outside",cliponaxis=False)
+                fig.update_layout(height=500,margin=dict(l=20,r=60,t=55,b=35))
+                st.plotly_chart(fig,use_container_width=True)
+
+        with c4:
+            sector = view.copy()
+            sector["_Broad_Sector"] = sector["Sector_Context"].map(_profile_sector_group)
+            sectors = (
+                sector["_Broad_Sector"].value_counts()
+                .rename_axis("Broad sector group")
+                .reset_index(name="Studies")
+            )
+            fig = px.bar(
+                sectors.sort_values("Studies"),
+                x="Studies",y="Broad sector group",orientation="h",
+                text="Studies",
+                title="Broad sector coverage",
+            )
+            fig.update_yaxes(title="")
+            fig.update_xaxes(title="Studies",dtick=1)
+            fig.update_traces(textposition="outside",cliponaxis=False)
+            fig.update_layout(height=500,margin=dict(l=20,r=60,t=55,b=35))
+            st.plotly_chart(fig,use_container_width=True)
+            st.caption(
+                "Display-only keyword grouping from Sector_Context; exact sector wording remains available in the Study Explorer."
+            )
+
+    with tabs[2]:
+        contrib = view.copy()
+        contrib["Evidence_Record_Count"] = contrib["Evidence_Record_Count"].fillna(0)
+        contrib["Pass_Evidence_Count"] = contrib["Pass_Evidence_Count"].fillna(0)
+        contrib["Pass_Rate"] = contrib.apply(
+            lambda r: (r["Pass_Evidence_Count"]/r["Evidence_Record_Count"]*100)
+            if r["Evidence_Record_Count"] else 0,
+            axis=1,
+        )
+
+        st.markdown("#### Evidence yield by study")
+        fig = px.scatter(
+            contrib,
+            x="Evidence_Record_Count",
+            y="Pass_Evidence_Count",
+            hover_name="Study_ID",
+            hover_data=["Title","Final_Analytical_Status","Pass_Rate"],
+            title="Extracted evidence volume × Pass evidence",
+        )
+        fig.update_xaxes(title="Evidence records")
+        fig.update_yaxes(title="Pass evidence")
+        fig.update_layout(height=500)
+        st.plotly_chart(fig,use_container_width=True)
+        st.caption(
+            "Evidence volume and Pass yield describe analytical contribution, not study quality."
+        )
+
+        top = contrib.sort_values(
+            ["Pass_Evidence_Count","Evidence_Record_Count"],
+            ascending=False,
+        ).head(25).copy()
+        fig = px.bar(
+            top.sort_values("Pass_Evidence_Count"),
+            x="Pass_Evidence_Count",
+            y="Study_ID",
+            orientation="h",
+            text="Pass_Evidence_Count",
+            hover_data=["Evidence_Record_Count","Title","Final_Analytical_Status"],
+            title="Largest contributors of Pass evidence",
+        )
+        fig.update_yaxes(title="")
+        fig.update_xaxes(title="Pass evidence")
+        fig.update_traces(textposition="outside",cliponaxis=False)
+        fig.update_layout(height=max(500,28*len(top)+130),margin=dict(l=20,r=70,t=55,b=35))
+        st.plotly_chart(fig,use_container_width=True)
+
+        with st.expander("Study-level evidence contribution table",expanded=False):
+            cols = [
+                "Study_ID","Title","Evidence_Record_Count","Pass_Evidence_Count",
+                "Active_Pass_FOC_Count","Derivation_Contribution",
+                "Final_Analytical_Status","Final_Status_Reason",
+            ]
+            st.dataframe(
+                contrib[[c for c in cols if c in contrib.columns]]
+                .sort_values(["Pass_Evidence_Count","Evidence_Record_Count"],ascending=False),
+                use_container_width=True,hide_index=True,height=500,
+            )
+
+    with tabs[3]:
+        family = view.copy()
+        family["Study_Family_ID"] = family["Study_Family_ID"].fillna("").astype(str).str.strip()
+        family_valid = family[
+            family["Study_Family_ID"].ne("")
+            & ~family["Study_Family_ID"].str.startswith("N/A",na=False)
+        ].copy()
+        family_sizes = (
+            family_valid.groupby("Study_Family_ID")["Study_ID"]
+            .nunique().reset_index(name="Studies")
+            .sort_values(["Studies","Study_Family_ID"],ascending=[False,True])
+        )
+
+        family_tagged = int(len(family_valid))
+        family_count = int(family_sizes["Study_Family_ID"].nunique()) if not family_sizes.empty else 0
+        multi_family = int((family_sizes["Studies"]>1).sum()) if not family_sizes.empty else 0
+        studies_multi = int(family_sizes.loc[family_sizes["Studies"]>1,"Studies"].sum()) if not family_sizes.empty else 0
+
+        f1,f2,f3,f4 = st.columns(4)
+        f1.metric("Profiles with Study Family ID",family_tagged)
+        f2.metric("Distinct Study Families",family_count)
+        f3.metric("Multi-study families",multi_family)
+        f4.metric("Studies inside multi-study families",studies_multi)
+
+        if not family_sizes.empty:
+            top_fam = family_sizes.head(20).copy()
+            fig = px.bar(
+                top_fam.sort_values("Studies"),
+                x="Studies",y="Study_Family_ID",orientation="h",
+                text="Studies",
+                title="Largest Study Families / shared provenance groups",
+            )
+            fig.update_yaxes(title="")
+            fig.update_xaxes(title="Study profiles in family",dtick=1)
+            fig.update_traces(textposition="outside",cliponaxis=False)
+            fig.update_layout(height=max(440,30*len(top_fam)+120),margin=dict(l=20,r=65,t=55,b=35))
+            st.plotly_chart(fig,use_container_width=True)
+            st.caption(
+                "Family size is a dependency/provenance diagnostic. Multiple publications in one family should not automatically be treated as independent construct-origin evidence."
+            )
+
+        st.markdown("#### Provenance-control table")
+        cols = [
+            "Study_ID","Title","Study_Family_ID","Evidence_Source_Role",
+            "PMM_Model_or_Framework","Source_Record_Type_DEC510",
+            "Independent_Evidence_Unit_ID_DEC510",
+            "Independent_Evidence_Unit_Label_DEC510",
+            "Final_Analytical_Status",
+        ]
+        st.dataframe(
+            view[[c for c in cols if c in view.columns]]
+            .sort_values(["Study_Family_ID","Study_ID"]),
+            use_container_width=True,hide_index=True,height=520,
+        )
+
+    with tabs[4]:
+        ids = sorted(view["Study_ID"].dropna().astype(str).unique().tolist())
+        selected = st.selectbox(
+            "Study ID",
+            ids,
+            key="bi_study_profile_explorer_id",
+        )
+        row = view[view["Study_ID"].eq(selected)].iloc[0]
+
+        st.markdown(f"### {selected} — {_text(row.get('Title'))}")
+        y1,y2,y3,y4 = st.columns(4)
+        y1.metric("Year",_text(row.get("Year")) or "—")
+        y2.metric("Evidence records",int(row.get("Evidence_Record_Count") or 0))
+        y3.metric("Pass evidence",int(row.get("Pass_Evidence_Count") or 0))
+        y4.metric("Active Pass FOCs",int(row.get("Active_Pass_FOC_Count") or 0))
+
+        st.markdown("#### Study identity and context")
+        a,b = st.columns(2)
+        with a:
+            st.write(f"**Authors:** {_text(row.get('Authors')) or '—'}")
+            st.write(f"**Country/context:** {_text(row.get('Country_Context')) or '—'}")
+            st.write(f"**Sector:** {_text(row.get('Sector_Context')) or '—'}")
+            st.write(f"**Organization level:** {_text(row.get('Organization_Level')) or '—'}")
+            st.write(f"**Unit of analysis:** {_text(row.get('Unit_of_Analysis')) or '—'}")
+        with b:
+            st.write(f"**Study design:** {_text(row.get('Study_Design')) or '—'}")
+            st.write(f"**Methodological family:** {_text(row.get('Methodological_Family')) or '—'}")
+            st.write(f"**Sample / data source:** {_text(row.get('Sample_or_Data_Source')) or '—'}")
+            st.write(f"**PMM model/framework:** {_text(row.get('PMM_Model_or_Framework')) or '—'}")
+
+        st.markdown("#### Analytical role and provenance")
+        c,d = st.columns(2)
+        with c:
+            st.write(f"**Derivation contribution:** {_text(row.get('Derivation_Contribution')) or '—'}")
+            st.write(f"**Final analytical status:** {_text(row.get('Final_Analytical_Status')) or '—'}")
+            st.write(f"**Canonical status:** {_text(row.get('Final_Canonical_126_Status')) or '—'}")
+            st.write(f"**Final status reason:** {_text(row.get('Final_Status_Reason')) or '—'}")
+        with d:
+            st.write(f"**Evidence source role:** {_text(row.get('Evidence_Source_Role')) or '—'}")
+            st.write(f"**Study family:** {_text(row.get('Study_Family_ID')) or '—'}")
+            st.write(f"**Independent evidence unit:** {_text(row.get('Independent_Evidence_Unit_ID_DEC510')) or '—'}")
+            st.write(f"**Source record type:** {_text(row.get('Source_Record_Type_DEC510')) or '—'}")
+
+        with st.expander("Capability evidence location"):
+            st.write(_text(row.get("Capability_Evidence_Location")) or "Not recorded.")
+        with st.expander("Transferability / context note"):
+            st.write(_text(row.get("Transferability_or_Context_Note")) or "Not recorded.")
+        if _text(row.get("Notes")):
+            with st.expander("Profile notes"):
+                st.write(_text(row.get("Notes")))
+
+    st.download_button(
+        "Download selected Study Profile scope (CSV)",
+        data=view.drop(columns=[c for c in view.columns if c.startswith("_")],errors="ignore")
+        .to_csv(index=False).encode("utf-8-sig"),
+        file_name="PMM_Study_Profile_Intelligence_scope.csv",
+        mime="text/csv",
+        key="bi_study_profile_download",
+    )
+
+
 def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
     st.markdown(
         '<div class="note-banner"><b>Research Evidence BI Dashboard:</b> '
@@ -3013,6 +3503,7 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
         [
             "Supervisor Overview",
             "Evidence Base",
+            "Study Profile Intelligence",
             "Evidence Intelligence",
             "Literature Architecture",
             "Study Architecture Explorer",
@@ -3034,6 +3525,8 @@ def render_research_bi_dashboard(frames: Dict[str, pd.DataFrame]) -> None:
         render_time_context(filtered)
         st.divider()
         render_evidence_quality(filtered, frames)
+    elif page == "Study Profile Intelligence":
+        render_study_profile_intelligence(frames, filtered)
     elif page == "Evidence Intelligence":
         render_evidence_intelligence(frames)
     elif page == "Literature Architecture":
