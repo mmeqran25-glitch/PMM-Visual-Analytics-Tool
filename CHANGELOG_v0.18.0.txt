@@ -1,0 +1,38 @@
+PMM Visual Analytics Tool — v0.18.0
+Date: 2026-10-07
+
+Automatic Local Excel Sources
+
+Configured default Windows research database folder:
+E:\مراجع للرسالة ان شاء الله\بداية تجهيز الرساله\قاعدة بيانات منصةرسالة الماجسيتر الخاص بمعاذ
+
+New
+- Added automatic read-only discovery of Excel workbooks from the configured local research folder.
+- Workbook role is detected from sheet signatures rather than fixed filenames:
+  * PMM MASTER: core PMM analytical sheets.
+  * Audit Archive: 00_AUDIT_ARCHIVE_INDEX.
+  * PRISMA / Screening: Master Screening + Search Log.
+- Automatically selects the newest PMM MASTER using DEC number, version number, modification time, then filename as tie-breakers.
+- Manual upload remains available and temporarily overrides the automatic local source.
+- Source priority:
+  manual upload -> automatic local folder -> private cache.
+- Audit Archive is also auto-loaded from the same folder when detected.
+- PRISMA module is also auto-loaded from the same folder when detected.
+- Local folder is rescanned automatically with a 10-second cache TTL.
+- Added “Rescan local Excel folder” for immediate manual refresh.
+- Replacing a workbook with the same filename is detected through its modification timestamp.
+- Added PMM_DATA_DIR environment-variable override for moving the database to another computer without changing code.
+- Local-folder mode remains read-only: no write-back to Excel.
+- Cloud-hosted Streamlit cannot directly access a user's E: drive; in that case the app displays a clear fallback message and keeps manual upload/private cache available.
+
+Testing
+- Added synthetic local-folder smoke test with:
+  * two PMM MASTER versions,
+  * one Audit Archive,
+  * one PRISMA workbook,
+  * one unrelated Excel workbook.
+- Test confirms workbook classification and automatic selection of the MASTER with the highest DEC/version.
+- Test confirms local workbook bytes load into the existing MASTER parser and current decision is correctly recovered.
+- Full GitHub Actions compile and version-agnostic smoke test: PASS.
+
+App version: v0.18.0
