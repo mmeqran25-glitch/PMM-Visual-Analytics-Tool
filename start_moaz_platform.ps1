@@ -6,25 +6,23 @@ $Host.UI.RawUI.WindowTitle = "Moaz PMM Research Platform"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $RepoRoot
 
-$DefaultDataDir = "E:\مراجع للرسالة ان شاء الله\بداية تجهيز الرساله\قاعدة بيانات منصةرسالة الماجسيتر الخاص بمعاذ"
-if ([string]::IsNullOrWhiteSpace($env:PMM_DATA_DIR)) {
-    $env:PMM_DATA_DIR = $DefaultDataDir
-}
-
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "  Moaz PMM Visual Analytics Platform" -ForegroundColor Cyan
 Write-Host "  Local automatic Excel mode" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Research database folder:" -ForegroundColor Gray
-Write-Host "  $env:PMM_DATA_DIR" -ForegroundColor White
-
-if (Test-Path -LiteralPath $env:PMM_DATA_DIR -PathType Container) {
-    Write-Host "[OK] Local Excel database folder is accessible." -ForegroundColor Green
+if ([string]::IsNullOrWhiteSpace($env:PMM_DATA_DIR)) {
+    Write-Host "Research database folder: using the application's built-in Windows default." -ForegroundColor Gray
 } else {
-    Write-Warning "The configured Excel folder is not currently accessible."
-    Write-Host "The platform will still start; manual upload/private cache remain available." -ForegroundColor Yellow
+    Write-Host "Research database folder override:" -ForegroundColor Gray
+    Write-Host "  $env:PMM_DATA_DIR" -ForegroundColor White
+    if (Test-Path -LiteralPath $env:PMM_DATA_DIR -PathType Container) {
+        Write-Host "[OK] PMM_DATA_DIR is accessible." -ForegroundColor Green
+    } else {
+        Write-Warning "PMM_DATA_DIR is not currently accessible."
+        Write-Host "The platform will still start; its built-in fallback/manual upload remains available." -ForegroundColor Yellow
+    }
 }
 
 $VenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
