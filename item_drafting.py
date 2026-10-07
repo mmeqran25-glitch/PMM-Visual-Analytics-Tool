@@ -352,7 +352,7 @@ def render_item_drafting_workspace(frames: Dict[str, pd.DataFrame]) -> None:
         drafts,
         use_container_width=True,
         hide_index=True,
-        num_rows="dynamic",
+        num_rows="fixed",
         disabled=[c for c in TRACE_COLUMNS if c in drafts.columns],
         column_config={
             "Item_Concept": st.column_config.TextColumn("Item concept", width="large"),
