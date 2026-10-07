@@ -167,7 +167,7 @@ def active_dimensions(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
 
     Selection rules are content-based rather than tied to a workbook version:
     1) never treat Historical/Superseded/Suspended/Retired/etc. rows as current;
-    2) prefer explicit active-status DIM rows when present;
+    2) prefer explicit operational active-status DIM rows when present and ignore embedded measurement-specification rows;
     3) otherwise admit current working rows that have a PASS/PROVISIONAL
        cross-audit result, a working label, definition and inclusion anchor;
     4) when the working row carries descriptive inclusion text instead of THM
@@ -193,8 +193,32 @@ def active_dimensions(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     inactive_pattern = r"Retired|Rejected|Withdrawn|Historical|Superseded|Suspended"
     inactive = status.str.contains(inactive_pattern, case=False, regex=True, na=False)
 
-    # Canonical current rows with an explicit non-inactive status.
-    explicit_current = dims.loc[status.ne("") & ~inactive].copy()
+    # Embedded DEC-589 measurement rows also start with DIM IDs, but their
+    # positional Item_Referent text lands under Dimension_Status. They are
+    # specifications, not candidate-dimension register rows.
+    measurement_marker = (
+        dims["Cross_Context_Support"].fillna("").astype(str).str.contains(
+            r"LOCK\s+PRE-ITEM|ITEM\s+POOL\s+NEXT",
+            case=False,
+            regex=True,
+            na=False,
+        )
+        if "Cross_Context_Support" in dims.columns
+        else pd.Series(False, index=dims.index)
+    )
+
+    active_status_pattern = (
+        r"\b(?:Stable|Current|Active|Final|Retain(?:ed)?|Pass|Conditional(?:ly)?|"
+        r"Provisional|Approved|Keep|Supported)\b"
+    )
+
+    # Canonical current rows must carry an actual operational Dimension status,
+    # not merely any non-empty text in the positional Dimension_Status column.
+    explicit_current = dims.loc[
+        status.str.contains(active_status_pattern, case=False, regex=True, na=False)
+        & ~inactive
+        & ~measurement_marker
+    ].copy()
     if not explicit_current.empty:
         return explicit_current.drop_duplicates(subset=["Dimension_ID"], keep="last").copy()
 
