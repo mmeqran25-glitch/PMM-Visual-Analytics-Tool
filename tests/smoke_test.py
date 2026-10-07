@@ -207,7 +207,7 @@ def main():
 
     launcher_text = launcher_ps1.read_text(encoding="utf-8")
     assert "PMM_DATA_DIR" in launcher_text
-    assert "قاعدة بيانات منصةرسالة الماجسيتر الخاص بمعاذ" in launcher_text
+    assert all(ord(ch) < 128 for ch in launcher_text), "Launcher must remain ASCII-safe for Windows PowerShell 5.1"
     assert "?view=researcher" in launcher_text
     assert "requirements.sha256" in launcher_text
     assert "streamlit" in launcher_text.lower()
