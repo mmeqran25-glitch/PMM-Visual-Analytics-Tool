@@ -1,0 +1,16 @@
+PMM Visual Analytics Tool — v0.17.0
+Date: 2026-10-07
+
+New: Audit Intelligence Center
+- Added Decision Intelligence Timeline from 11_Decision_Log.
+- Added Entity History Explorer for DIM / THM / PCL / PMAP / CD / EV / SR records.
+- Added current structural lineage view (FOC → PCL → Theme → Dimension).
+- Added Dimension Defense cards with construct definition, required content, exclusions, applicability, evidence footprint, and claim boundaries.
+- Added Current vs Historical comparison.
+- Added optional read-only Audit Archive upload.
+- Preserved the operational MASTER as the sole source of current analytical truth.
+- Historical Audit Archive is used only for provenance/reconstruction and never creates a new analytical vote.
+- Added canonical SR001-style source-ID support.
+- Updated CI compile checks to include audit_intelligence.py.
+
+App version: v0.17.0
