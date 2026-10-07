@@ -1,0 +1,35 @@
+PMM Visual Analytics Tool — v0.17.1
+Date: 2026-10-07
+
+Defense Mode + Measurement Readiness
+
+New
+- Added Supervisor / Viva Defense Mode for each active Candidate Dimension.
+- Reconstructs current Dimension → Theme → PCL → FOC → Source-record lineage.
+- Links DEC records by relevance level: Direct Dimension, Theme-linked, Cluster-linked, FOC/Evidence-linked, Source-linked.
+- Classifies decision events such as boundary, merge/nesting, split, reassignment, source fidelity, residual/challenge, closure, and measurement/item development.
+- Extracts the embedded DEC-588 55-pair boundary table from 08_Candidate_Dimensions and shows the 10 relevant pairwise tests for a selected Dimension.
+- Extracts the embedded DEC-589 pre-item measurement table without creating any new MASTER sheets.
+- Added Measurement Readiness view covering:
+  * Pre_Item_Measurement_Form
+  * Required_Content_Facets
+  * Item_Referent
+  * Exclude_or_Contamination_Rule
+  * Applicability_NA_Control
+  * Aggregation_Control
+  * Validation_Gate
+  * Pre_Item_Disposition
+- Added downloadable per-Dimension Defense Brief (.md).
+- Historical Audit Archive can enrich Defense Mode with prior audit-sheet appearances while remaining provenance-only.
+- Added exact-ID matching to prevent false matches such as SR105 inside SR1053.
+- Corrected canonical SR001-style source-ID recognition.
+- CI now compiles defense_mode.py alongside the existing application modules.
+
+Methodological guardrails
+- Operational MASTER remains the current source of analytical truth.
+- Audit Archive is historical provenance only and never creates a new analytical vote.
+- DEC-588 qualitative distinctiveness is not presented as psychometric discriminant validity.
+- DEC-589 pre-item architecture is not presented as a validated reflective measurement model.
+- No final scoring, weighting, or regression-predictor count is inferred from qualitative closure alone.
+
+App version: v0.17.1
