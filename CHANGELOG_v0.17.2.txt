@@ -1,0 +1,31 @@
+PMM Visual Analytics Tool — v0.17.2
+Date: 2026-10-07
+
+Item-Pool Preparation Release
+
+New
+- Added Item-Pool Preparation inside Audit Intelligence.
+- Uses DEC-589 pre-item measurement specification as the controlling content boundary.
+- Shows required content facets without automatically assigning FOCs to facets.
+- Builds a read-only source-grounded anchor table from:
+  Dimension → Theme → PCL → FOC → Study/Evidence → Original Author Term / Parent Construct / Author-defined relationship.
+- Adds PCL/Theme coverage counts and flags Provisional PCLs.
+- Adds Theme and PCL filters for item-development review.
+- Adds explicit item-drafting safeguards:
+  * no 1 FOC = 1 questionnaire item rule
+  * preserve managed object / PM-practice referent
+  * retain construct-relevant source qualifiers
+  * exclude outcomes/states from maturity-practice indicators
+  * enforce DEC-589 contamination boundaries
+  * use N/A controls when observability is limited
+  * do not aggregate multifacet domains before validation
+- Adds CSV export of source-grounded evidence anchors for offline item drafting.
+- Does not modify the MASTER or create any new worksheet.
+- Expanded smoke tests to verify embedded DEC-588 pairwise parsing, DEC-589 measurement parsing, and item-pool evidence-anchor joins.
+
+Methodological control
+- Item Pool Preparation is staging for human item development, not automatic questionnaire generation.
+- Facet-to-FOC mapping remains a human content-validity task using whole-function meaning, managed object, author parent construct, and source context.
+- Expert content validity/CVI, pilot testing, and empirical dimensionality/discriminant assessment remain later gates.
+
+App version: v0.17.2
