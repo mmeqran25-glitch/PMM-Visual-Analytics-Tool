@@ -20,6 +20,7 @@ from qualitative_visuals import build_dimension_sankey, build_all_dimensions_san
 from evidence_matrix import build_evidence_links, build_study_theme_matrix, build_study_dimension_matrix, build_pcl_theme_matrix, build_dimension_evidence_synthesis
 from defense_mode import measurement_spec_table, pairwise_boundary_table
 from item_pool_prep import item_pool_anchor_table
+from item_drafting import build_draft_record, required_facets, _draft_workbook_bytes
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -240,6 +241,32 @@ def main():
     assert anchors.iloc[0]["Theme_ID"] == "THM-001", anchors
     assert anchors.iloc[0]["Cluster_ID"] == "PCL-001", anchors
     assert anchors.iloc[0]["Original_Author_Term"] == "Term", anchors
+
+    # Item drafting must preserve locked source traceability and produce an expert-review package.
+    facets = required_facets(frames, "DIM-001")
+    assert facets == ["Facet A", "Facet B"], facets
+    draft = build_draft_record(frames, "DIM-001", facets[0], anchors, 1)
+    assert draft["Draft_Item_ID"] == "DRAFT-DIM-001-001", draft
+    assert draft["Supporting_FOCs"] == "CD-SR001-001", draft
+    assert draft["Supporting_PCLs"] == "PCL-001", draft
+    assert draft["Supporting_Studies"] == "SR001", draft
+    assert draft["Required_Content_Facet"] == "Facet A", draft
+    assert draft["Exclude_or_Contamination_Rule"] == "Exclude outcomes", draft
+
+    draft_df = pd.DataFrame([draft])
+    draft_df.loc[0, "Item_Concept"] = "Synthetic item concept"
+    draft_df.loc[0, "Candidate_Item_EN"] = "Our organization uses the synthetic PM practice."
+    package_bytes = _draft_workbook_bytes(draft_df, measurement.iloc[0], 5)
+    package_wb = load_workbook(BytesIO(package_bytes), read_only=True, data_only=False)
+    assert package_wb.sheetnames == [
+        "00_Instructions",
+        "01_Draft_Items",
+        "02_DEC589_Spec",
+        "03_Expert_Ratings",
+        "04_CVI_Summary",
+    ]
+    expert_ws = package_wb["03_Expert_Ratings"]
+    assert expert_ws.max_row == 6  # header + 5 expert-rating rows
 
     stm = build_study_theme_matrix(links, mode="Presence", theme_ids=["THM-001"])
     assert stm.loc["SR001", "THM-001"] == "●", stm
