@@ -10,6 +10,7 @@ import streamlit as st
 
 from defense_mode import render_defense_mode, render_measurement_readiness
 from item_pool_prep import render_item_pool_preparation
+from item_drafting import render_item_drafting_workspace
 
 from master_utils import (
     active_dimensions,
@@ -18,7 +19,7 @@ from master_utils import (
     split_ids,
 )
 
-AUDIT_INTELLIGENCE_VERSION = "v0.17.2-audit"
+AUDIT_INTELLIGENCE_VERSION = "v0.17.3-audit"
 
 _ID_RE = re.compile(r"\b(?:(?:DIM|THM|PCL|PMAP|CD|EV)-[A-Za-z0-9-]+|SR\d{3,})\b", re.IGNORECASE)
 _DEC_RE = re.compile(r"\bDEC-\d{3}\b", re.IGNORECASE)
@@ -749,6 +750,7 @@ def render_audit_intelligence(
         "Defense Mode",
         "Measurement Readiness",
         "Item-Pool Prep",
+        "Item Drafting",
         "Current vs Historical",
     ])
     with tabs[0]:
@@ -764,4 +766,6 @@ def render_audit_intelligence(
     with tabs[5]:
         render_item_pool_preparation(frames)
     with tabs[6]:
+        render_item_drafting_workspace(frames)
+    with tabs[7]:
         _render_current_vs_historical(frames, archive_frames)
