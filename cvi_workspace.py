@@ -263,7 +263,7 @@ def render_cvi_workspace() -> None:
         column_config={
             "I_CVI": st.column_config.NumberColumn("I-CVI", format="%.3f"),
             "Rating_Completeness": st.column_config.ProgressColumn(
-                "Rating completeness", min_value=0.0, max_value=1.0, format="%.0%%"
+                "Rating completeness", min_value=0.0, max_value=1.0, format="%.0f%%"
             ),
         },
     )
