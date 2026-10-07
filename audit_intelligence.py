@@ -186,7 +186,7 @@ def _entity_type(entity_id: str) -> str:
         return "First-Order Code / Coding record"
     if x.startswith("EV-"):
         return "Evidence"
-    if x.startswith("SR-"):
+    if re.match(r"^SR\\d{3,}$", x):
         return "Source / Study record"
     return "Entity"
 
@@ -482,6 +482,8 @@ def _render_entity_history(
     filtered = ids
     if prefix == "PMAP/CD":
         filtered = [x for x in ids if x.startswith("PMAP-") or x.startswith("CD-")]
+    elif prefix == "SR":
+        filtered = [x for x in ids if re.match(r"^SR\\d{3,}$", x)]
     elif prefix != "All":
         filtered = [x for x in ids if x.startswith(prefix + "-")]
 
