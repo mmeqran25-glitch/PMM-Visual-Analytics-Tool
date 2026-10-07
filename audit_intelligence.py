@@ -744,7 +744,7 @@ def render_audit_intelligence(
             "the operational MASTER."
         )
 
-    tabs = st.tabs([
+    pages = [
         "Overview",
         "Decision Timeline",
         "Entity History",
@@ -754,22 +754,31 @@ def render_audit_intelligence(
         "Item Drafting",
         "Expert Review / CVI",
         "Current vs Historical",
-    ])
-    with tabs[0]:
+    ]
+    page = st.radio(
+        "Audit Intelligence view",
+        pages,
+        horizontal=True,
+        key="audit_intelligence_active_view",
+        label_visibility="collapsed",
+    )
+    st.divider()
+
+    if page == "Overview":
         _render_overview(frames, archive_frames)
-    with tabs[1]:
+    elif page == "Decision Timeline":
         _render_timeline(frames)
-    with tabs[2]:
+    elif page == "Entity History":
         _render_entity_history(frames, archive_frames)
-    with tabs[3]:
+    elif page == "Defense Mode":
         render_defense_mode(frames, archive_frames=archive_frames)
-    with tabs[4]:
+    elif page == "Measurement Readiness":
         render_measurement_readiness(frames)
-    with tabs[5]:
+    elif page == "Item-Pool Prep":
         render_item_pool_preparation(frames)
-    with tabs[6]:
+    elif page == "Item Drafting":
         render_item_drafting_workspace(frames)
-    with tabs[7]:
+    elif page == "Expert Review / CVI":
         render_cvi_workspace()
-    with tabs[8]:
+    else:
         _render_current_vs_historical(frames, archive_frames)
