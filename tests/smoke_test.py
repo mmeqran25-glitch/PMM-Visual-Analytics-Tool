@@ -18,6 +18,8 @@ from dimension_export import dimension_trace_workbook_bytes
 from bi_dashboard import build_study_catalog, filter_catalog, dashboard_counts, novelty_study_rows, context_completeness, _apply_context_display_limit, _top_n_with_other, _country_bi_group, _sector_bi_group
 from qualitative_visuals import build_dimension_sankey, build_all_dimensions_sankey, build_theme_study_matrix, build_heatmap_figure, build_cooccurrence_figure, build_wordcloud_frequencies, build_wordcloud_image, build_theme_boundary_profile, build_negative_deviant_case_matrix, build_entreq_audit_table, build_audit_trail_events, build_audit_timeline_figure, ENTREQ_ITEMS
 from evidence_matrix import build_evidence_links, build_study_theme_matrix, build_study_dimension_matrix, build_pcl_theme_matrix, build_dimension_evidence_synthesis
+from defense_mode import measurement_spec_table, pairwise_boundary_table
+from item_pool_prep import item_pool_anchor_table
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -132,6 +134,38 @@ def build_workbook(version: str = "v99.123", decision: str = "DEC-999") -> bytes
             ],
             [["DIM-001", "Synthetic Dimension", "THM-001", "Stable", "Definition", "Logic", "Breadth", "", "", "", "", ""]],
         )
+        dim_ws = writer.sheets["08_Candidate_Dimensions"]
+        pair_headers = [
+            "Audit_ID", "Dimension_A", "Dimension_B", "Shared_Source_Records",
+            "Boundary_Risk", "Controlling_Discriminator", "Final_Decision",
+            "Pairwise_Rationale", "Measurement_Caution",
+        ]
+        pair_values = [
+            "D588-01", "DIM-001", "DIM-002", 1, "Low",
+            "Synthetic discriminator", "PASS – RETAIN DISTINCT",
+            "Synthetic pairwise rationale", "Synthetic measurement caution",
+        ]
+        for col_idx, value in enumerate(pair_headers, start=1):
+            dim_ws.cell(row=20, column=col_idx, value=value)
+        for col_idx, value in enumerate(pair_values, start=1):
+            dim_ws.cell(row=21, column=col_idx, value=value)
+
+        measurement_headers = [
+            "Dimension_ID", "Pre_Item_Measurement_Form", "Required_Content_Facets",
+            "Item_Referent", "Exclude_or_Contamination_Rule", "Applicability_NA_Control",
+            "Aggregation_Control", "Validation_Gate", "Pre_Item_Disposition",
+        ]
+        measurement_values = [
+            "DIM-001", "Synthetic multifacet content-composite",
+            "Facet A; Facet B", "Synthetic organizational PM practice",
+            "Exclude outcomes", "Use N/A where not observable",
+            "Preserve facet coverage", "Expert CVI + pilot + empirical testing",
+            "LOCK PRE-ITEM ARCHITECTURE; ITEM POOL NEXT",
+        ]
+        for col_idx, value in enumerate(measurement_headers, start=1):
+            dim_ws.cell(row=25, column=col_idx, value=value)
+        for col_idx, value in enumerate(measurement_values, start=1):
+            dim_ws.cell(row=26, column=col_idx, value=value)
         _sheet(
             writer,
             "09_Novelty_Tracking",
@@ -187,6 +221,25 @@ def main():
     assert links.iloc[0]["Theme_ID"] == "THM-001", links
     assert links.iloc[0]["Dimension_ID"] == "DIM-001", links
     assert links.iloc[0]["Evidence_Family_ID"] == "SF-TEST-01", links
+
+    # Embedded DEC-588 / DEC-589 tables must be recoverable from the existing 08 sheet.
+    pairwise = pairwise_boundary_table(frames)
+    assert len(pairwise) == 1, pairwise
+    assert pairwise.iloc[0]["Audit_ID"] == "D588-01", pairwise
+    assert pairwise.iloc[0]["Final_Decision"] == "PASS – RETAIN DISTINCT", pairwise
+
+    measurement = measurement_spec_table(frames)
+    assert len(measurement) == 1, measurement
+    assert measurement.iloc[0]["Dimension_ID"] == "DIM-001", measurement
+    assert measurement.iloc[0]["Required_Content_Facets"] == "Facet A; Facet B", measurement
+    assert "ITEM POOL NEXT" in measurement.iloc[0]["Pre_Item_Disposition"], measurement
+
+    anchors = item_pool_anchor_table(frames, "DIM-001")
+    assert len(anchors) == 1, anchors
+    assert anchors.iloc[0]["Code_ID"] == "CD-SR001-001", anchors
+    assert anchors.iloc[0]["Theme_ID"] == "THM-001", anchors
+    assert anchors.iloc[0]["Cluster_ID"] == "PCL-001", anchors
+    assert anchors.iloc[0]["Original_Author_Term"] == "Term", anchors
 
     stm = build_study_theme_matrix(links, mode="Presence", theme_ids=["THM-001"])
     assert stm.loc["SR001", "THM-001"] == "●", stm
