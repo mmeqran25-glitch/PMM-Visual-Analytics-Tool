@@ -29,6 +29,10 @@ def _s(value: Any) -> str:
     return str(value).strip()
 
 
+def _exact_id_pattern(entity: str) -> str:
+    return rf"(?<![A-Za-z0-9-]){re.escape(entity)}(?![A-Za-z0-9-])"
+
+
 def _clean(df: pd.DataFrame) -> pd.DataFrame:
     if df is None:
         return pd.DataFrame()
@@ -126,6 +130,7 @@ def _find_entity_occurrences(
     if not frames or not entity_id:
         return pd.DataFrame(columns=["Source", "Sheet", "Row", "Matched_Columns", "Context"])
     entity = entity_id.strip().upper()
+    pattern = _exact_id_pattern(entity)
     rows: List[Dict[str, Any]] = []
     for sheet, df in frames.items():
         if sheet.startswith("__") or df is None or df.empty:
@@ -133,7 +138,7 @@ def _find_entity_occurrences(
         text_df = df.astype(str)
         try:
             hitmask = text_df.apply(
-                lambda col: col.str.contains(re.escape(entity), case=False, na=False)
+                lambda col: col.str.contains(pattern, case=False, na=False, regex=True)
             ).any(axis=1)
         except Exception:
             continue
@@ -142,7 +147,7 @@ def _find_entity_occurrences(
             context_parts = []
             for col in df.columns:
                 val = _s(df.at[idx, col])
-                if entity.lower() in val.lower():
+                if re.search(pattern, val, flags=re.IGNORECASE):
                     matched_cols.append(_s(col))
                 if val and len(context_parts) < 4:
                     context_parts.append(f"{_s(col)}: {val[:220]}")
@@ -515,7 +520,7 @@ def _render_entity_history(
     if not dec.empty:
         textcols = [c for c in dec.columns if not c.startswith("_")]
         mask = dec[textcols].astype(str).apply(
-            lambda col: col.str.contains(re.escape(entity), case=False, na=False)
+            lambda col: col.str.contains(_exact_id_pattern(entity), case=False, na=False, regex=True)
         ).any(axis=1)
         linked = dec[mask]
         st.markdown("#### Linked DEC records")
