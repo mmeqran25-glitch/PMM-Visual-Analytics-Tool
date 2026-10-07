@@ -21,6 +21,7 @@ from evidence_matrix import build_evidence_links, build_study_theme_matrix, buil
 from defense_mode import measurement_spec_table, pairwise_boundary_table
 from item_pool_prep import item_pool_anchor_table
 from item_drafting import build_draft_record, required_facets, _draft_workbook_bytes
+from cvi_workspace import calculate_cvi
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -267,6 +268,30 @@ def main():
     ]
     expert_ws = package_wb["03_Expert_Ratings"]
     assert expert_ws.max_row == 6  # header + 5 expert-rating rows
+
+    # CVI calculation should be transparent and reproducible.
+    cvi_ratings = pd.DataFrame([
+        {"Expert_ID": "E1", "Draft_Item_ID": "ITEM-1", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet A", "Candidate_Item_EN": "Item 1", "Candidate_Item_AR": "", "Relevance_1_to_4": 4},
+        {"Expert_ID": "E2", "Draft_Item_ID": "ITEM-1", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet A", "Candidate_Item_EN": "Item 1", "Candidate_Item_AR": "", "Relevance_1_to_4": 4},
+        {"Expert_ID": "E3", "Draft_Item_ID": "ITEM-1", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet A", "Candidate_Item_EN": "Item 1", "Candidate_Item_AR": "", "Relevance_1_to_4": 3},
+        {"Expert_ID": "E4", "Draft_Item_ID": "ITEM-1", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet A", "Candidate_Item_EN": "Item 1", "Candidate_Item_AR": "", "Relevance_1_to_4": 2},
+        {"Expert_ID": "E5", "Draft_Item_ID": "ITEM-1", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet A", "Candidate_Item_EN": "Item 1", "Candidate_Item_AR": "", "Relevance_1_to_4": 4},
+        {"Expert_ID": "E1", "Draft_Item_ID": "ITEM-2", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet B", "Candidate_Item_EN": "Item 2", "Candidate_Item_AR": "", "Relevance_1_to_4": 4},
+        {"Expert_ID": "E2", "Draft_Item_ID": "ITEM-2", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet B", "Candidate_Item_EN": "Item 2", "Candidate_Item_AR": "", "Relevance_1_to_4": 3},
+        {"Expert_ID": "E3", "Draft_Item_ID": "ITEM-2", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet B", "Candidate_Item_EN": "Item 2", "Candidate_Item_AR": "", "Relevance_1_to_4": 2},
+        {"Expert_ID": "E4", "Draft_Item_ID": "ITEM-2", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet B", "Candidate_Item_EN": "Item 2", "Candidate_Item_AR": "", "Relevance_1_to_4": 2},
+        {"Expert_ID": "E5", "Draft_Item_ID": "ITEM-2", "Dimension_ID": "DIM-001", "Required_Content_Facet": "Facet B", "Candidate_Item_EN": "Item 2", "Candidate_Item_AR": "", "Relevance_1_to_4": 1},
+    ])
+    cvi_items, cvi_summary, cvi_quality = calculate_cvi(cvi_ratings, threshold=0.78)
+    i1 = cvi_items[cvi_items["Draft_Item_ID"].eq("ITEM-1")].iloc[0]
+    i2 = cvi_items[cvi_items["Draft_Item_ID"].eq("ITEM-2")].iloc[0]
+    assert round(float(i1["I_CVI"]), 3) == 0.800, cvi_items
+    assert i1["CVI_Decision"] == "Meets threshold", cvi_items
+    assert round(float(i2["I_CVI"]), 3) == 0.400, cvi_items
+    assert i2["CVI_Decision"] == "Review", cvi_items
+    assert round(float(cvi_summary["S_CVI_Ave"]), 3) == 0.600, cvi_summary
+    assert cvi_summary["Experts_Detected"] == 5, cvi_summary
+    assert cvi_quality.empty, cvi_quality
 
     stm = build_study_theme_matrix(links, mode="Presence", theme_ids=["THM-001"])
     assert stm.loc["SR001", "THM-001"] == "●", stm
