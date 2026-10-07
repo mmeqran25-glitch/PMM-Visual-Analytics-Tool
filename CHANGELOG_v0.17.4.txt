@@ -1,0 +1,41 @@
+PMM Visual Analytics Tool — v0.17.4
+Date: 2026-10-07
+
+Item Drafting + Expert Review / CVI Release
+
+Item Drafting Workspace
+- Added human-in-the-loop item drafting under Audit Intelligence.
+- Every draft item must be staged from selected source-grounded FOC anchors.
+- Traceability fields are locked in the editor: Dimension, facet, PCLs, FOCs, Study_IDs, Evidence_IDs, referent, applicability, and contamination boundary.
+- Supports bilingual candidate wording (English / Arabic), item concept, response format, rationale, boundary check, and draft status.
+- Draft rows are session-only and never write back to the MASTER.
+- Added drafting quality checks and expert-review readiness flags.
+- Added CSV export of current drafts.
+- Added Expert Review / CVI preparation workbook with:
+  00_Instructions
+  01_Draft_Items
+  02_DEC589_Spec
+  03_Expert_Ratings
+  04_CVI_Summary
+- Expert panel size in the generated template is user-controlled and does not set the thesis protocol.
+
+Expert Review / CVI Workspace
+- Reads the generated expert-review workbook or a compatible ratings CSV.
+- Validates required columns, duplicate expert-item pairs, nonnumeric relevance values, and ratings outside 1–4.
+- Calculates item-level I-CVI as the proportion of valid expert relevance ratings equal to 3 or 4.
+- Calculates S-CVI/Ave as the mean of analyzable item-level I-CVI values.
+- Uses a researcher-controlled decision threshold; default display is 0.78 but the protocol remains authoritative.
+- Shows rating completeness and data-quality issues.
+- Exports a CVI analysis workbook containing summary, item-level CVI, source ratings, and quality issues.
+- Explicitly does not infer construct validity, factor structure, reliability, or final scale scoring from CVI.
+
+Testing
+- Smoke test verifies draft traceability from DIM → facet → PCL/FOC → Study/Evidence.
+- Smoke test verifies Expert Review workbook generation.
+- Reproducible CVI test confirms:
+  Item 1: 4/5 favorable = I-CVI 0.80 → meets 0.78 threshold.
+  Item 2: 2/5 favorable = I-CVI 0.40 → review.
+  S-CVI/Ave = 0.60.
+- Existing MASTER, DEC-588/589, traceability, and platform smoke tests remain green.
+
+App version: v0.17.4
