@@ -103,8 +103,7 @@ def calculate_cvi(
         })
 
     rows = []
-    group_cols = ["Draft_Item_ID"]
-    for item_id, g in dedup.groupby(group_cols, dropna=False):
+    for item_id, g in dedup.groupby("Draft_Item_ID", dropna=False):
         valid = g[g["Relevance_Numeric"].notna()].copy()
         favorable = valid[valid["Relevance_Numeric"].ge(3)]
         first = g.iloc[-1]
