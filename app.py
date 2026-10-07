@@ -79,13 +79,13 @@ from evidence_matrix import render_evidence_coverage_matrices
 from audit_intelligence import load_audit_archive, render_audit_intelligence
 import qualitative_visuals as qualitative_visuals_module
 
-EXPECTED_QUAL_VIS_VERSION = "v0.15.5"
+EXPECTED_QUAL_VIS_VERSION = "v0.18.2-fast"
 if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUAL_VIS_VERSION:
     qualitative_visuals_module = importlib.reload(qualitative_visuals_module)
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.18.1"
+APP_VERSION = "v0.18.2-fast"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -393,6 +393,28 @@ def render_academic_footer() -> None:
 @st.cache_data(show_spinner=False)
 def cached_master_load(file_bytes: bytes):
     return load_master_workbook(file_bytes)
+
+
+@st.cache_data(show_spinner=False)
+def cached_master_snapshot(file_bytes: bytes):
+    frames, _ = cached_master_load(file_bytes)
+    return master_snapshot(frames)
+
+
+@st.cache_data(show_spinner=False)
+def cached_master_validation(file_bytes: bytes):
+    frames, _ = cached_master_load(file_bytes)
+    return validate_master(frames)
+
+
+@st.cache_data(show_spinner=False, ttl=60)
+def cached_private_master_entry():
+    return load_cached_master()
+
+
+@st.cache_data(show_spinner=False)
+def cached_audit_archive_load(file_bytes: bytes):
+    return load_audit_archive(file_bytes)
 
 
 @st.cache_data(show_spinner=False, ttl=10)
@@ -1533,7 +1555,7 @@ def main():
         return
 
     uploader_version = int(st.session_state.get("master_uploader_version", 0))
-    cached_entry = load_cached_master() if persistence_enabled else None
+    cached_entry = cached_private_master_entry() if persistence_enabled else None
     local_master_entry = _local_entry(local_sources, "master")
     local_archive_entry = _local_entry(local_sources, "audit_archive")
 
@@ -1592,6 +1614,9 @@ def main():
                 clear_cached_master()
                 st.session_state["master_uploader_version"] = uploader_version + 1
                 cached_master_load.clear()
+                cached_master_snapshot.clear()
+                cached_master_validation.clear()
+                cached_private_master_entry.clear()
                 st.rerun()
 
         display_mode = st.radio(
@@ -1652,7 +1677,7 @@ def main():
         st.error(f"Could not read workbook: {exc}")
         return
 
-    issues = validate_master(frames)
+    issues = cached_master_validation(master_bytes)
     if issues:
         st.error("This workbook does not match the expected PMM MASTER structure.")
         for issue in issues:
@@ -1664,8 +1689,9 @@ def main():
     if uploaded_now and persistence_enabled:
         meta = save_cached_master(master_name, master_bytes)
         cached_entry = (master_name, master_bytes, meta)
+        cached_private_master_entry.clear()
 
-    snapshot = master_snapshot(frames)
+    snapshot = cached_master_snapshot(master_bytes)
     render_snapshot_header(
         snapshot,
         master_name,
@@ -1679,16 +1705,36 @@ def main():
             "Refresh-safe researcher session is active. This temporary server cache may be cleared by a Streamlit restart/redeploy or by the Forget cached MASTER button."
         )
 
-    sanitized = cached_supervisor_snapshot_bytes(master_bytes)
     with st.sidebar:
-        st.download_button(
-            "Download sanitized supervisor snapshot",
-            data=sanitized,
-            file_name="supervisor_snapshot.json",
-            mime="application/json",
-            help="Contains presentation structure only; no Excel file, filename, Meaning Units, context verbatim, or study/source nodes.",
-            use_container_width=True,
+        st.markdown("##### Supervisor snapshot")
+        snapshot_state_key = "prepared_supervisor_snapshot"
+        snapshot_sig_key = "prepared_supervisor_snapshot_name"
+        prepared = (
+            st.session_state.get(snapshot_state_key)
+            if st.session_state.get(snapshot_sig_key) == master_name
+            else None
         )
+        if prepared is None:
+            if st.button(
+                "Prepare sanitized supervisor snapshot",
+                key="prepare_supervisor_snapshot",
+                use_container_width=True,
+                help="Build only when needed; avoids expensive snapshot generation on every click.",
+            ):
+                with st.spinner("Preparing supervisor snapshot..."):
+                    prepared = cached_supervisor_snapshot_bytes(master_bytes)
+                st.session_state[snapshot_state_key] = prepared
+                st.session_state[snapshot_sig_key] = master_name
+                st.rerun()
+        else:
+            st.download_button(
+                "Download sanitized supervisor snapshot",
+                data=prepared,
+                file_name="supervisor_snapshot.json",
+                mime="application/json",
+                help="Contains presentation structure only; no Excel file, filename, Meaning Units, context verbatim, or study/source nodes.",
+                use_container_width=True,
+            )
 
     archive_frames = None
     archive_name = None
@@ -1705,7 +1751,7 @@ def main():
 
     if archive_bytes is not None:
         try:
-            archive_frames, _ = load_audit_archive(archive_bytes)
+            archive_frames, _ = cached_audit_archive_load(archive_bytes)
             if archive_source:
                 st.sidebar.caption(f"Audit Archive source: {archive_source}")
         except Exception as exc:
