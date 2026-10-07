@@ -70,6 +70,7 @@ if getattr(bi_dashboard_module, "BI_DASH_VERSION", None) != EXPECTED_BI_DASH_VER
 render_research_bi_dashboard = bi_dashboard_module.render_research_bi_dashboard
 from prisma_dashboard import render_prisma_dashboard
 from evidence_matrix import render_evidence_coverage_matrices
+from audit_intelligence import load_audit_archive, render_audit_intelligence
 import qualitative_visuals as qualitative_visuals_module
 
 EXPECTED_QUAL_VIS_VERSION = "v0.15.5"
@@ -78,7 +79,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.16.16"
+APP_VERSION = "v0.17.0"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -1387,7 +1388,7 @@ def render_supervisor_mode(frames: dict, snapshot: dict):
         render_open_decisions(frames, compact=True)
 
 
-def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
+def render_researcher_mode(frames: dict, snapshot: dict, structure: list, archive_frames: dict | None = None, archive_name: str | None = None):
     """Render only the active researcher section.
 
     Streamlit tabs execute every tab body on every rerun. With a large MASTER
@@ -1399,6 +1400,7 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
         "Current State",
         "Research BI Dashboard",
         "Qualitative Visuals",
+        "Audit Intelligence",
         "SG2 Review",
         "Themes & Dimensions",
         "Evidence Matrices",
@@ -1423,6 +1425,8 @@ def render_researcher_mode(frames: dict, snapshot: dict, structure: list):
         render_research_bi_dashboard(frames)
     elif section == "Qualitative Visuals":
         render_qualitative_visuals(frames)
+    elif section == "Audit Intelligence":
+        render_audit_intelligence(frames, archive_frames=archive_frames, archive_name=archive_name)
     elif section == "SG2 Review":
         render_sg2_review(frames)
     elif section == "Themes & Dimensions":
@@ -1513,6 +1517,12 @@ def main():
             "Upload current Excel MASTER (.xlsx)",
             type=["xlsx"],
             key=f"master_xlsx_{uploader_version}",
+        )
+        audit_archive_upload = st.file_uploader(
+            "Optional: Upload Audit Archive (.xlsx)",
+            type=["xlsx"],
+            key=f"audit_archive_xlsx_{uploader_version}",
+            help="Historical provenance only. It never replaces the operational MASTER as the source of current analytical truth.",
         )
 
         if persistence_enabled and cached_entry is not None:
@@ -1607,11 +1617,28 @@ def main():
             use_container_width=True,
         )
 
+    archive_frames = None
+    archive_name = None
+    if audit_archive_upload is not None:
+        try:
+            archive_name = audit_archive_upload.name
+            archive_frames, _ = load_audit_archive(audit_archive_upload.getvalue())
+        except Exception as exc:
+            st.sidebar.warning(f"Audit Archive could not be read: {exc}")
+            archive_frames = None
+            archive_name = None
+
     if display_mode == "Supervisor Preview":
         package = cached_supervisor_package(master_bytes)
         render_published_supervisor(package)
     else:
-        render_researcher_mode(frames, snapshot, structure)
+        render_researcher_mode(
+            frames,
+            snapshot,
+            structure,
+            archive_frames=archive_frames,
+            archive_name=archive_name,
+        )
 
     render_academic_footer()
 
