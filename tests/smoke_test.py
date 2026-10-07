@@ -22,6 +22,11 @@ from defense_mode import measurement_spec_table, pairwise_boundary_table
 from item_pool_prep import item_pool_anchor_table
 from item_drafting import build_draft_record, required_facets, _draft_workbook_bytes
 from cvi_workspace import calculate_cvi
+from local_data_source import (
+    discover_local_excel_sources,
+    read_local_workbook,
+    local_source_status,
+)
 from researcher_cache import (
     token_matches,
     save_cached_master,
@@ -638,6 +643,49 @@ def main():
         assert forbidden not in compact_text, forbidden
 
     # Researcher workbook cache persists independently of a Streamlit browser session.
+    # Automatic local Excel discovery must classify workbook roles and pick the newest semantic MASTER.
+    with TemporaryDirectory() as local_td:
+        local_root = Path(local_td)
+        (local_root / "PMM_MASTER_v1.0_DEC005.xlsx").write_bytes(build_workbook(version="v1.0", decision="DEC-005"))
+        newest_master = local_root / "PMM_MASTER_v2.0_DEC009.xlsx"
+        newest_master.write_bytes(build_workbook(version="v2.0", decision="DEC-009"))
+
+        audit_bio = BytesIO()
+        with pd.ExcelWriter(audit_bio, engine="openpyxl") as writer:
+            pd.DataFrame(
+                [["Archived_Sheet", "Archive_Category"], ["08D_DEC488_CrossDim_Audit", "SG4 dimension audit"]]
+            ).to_excel(writer, sheet_name="00_AUDIT_ARCHIVE_INDEX", index=False, header=False)
+        (local_root / "PMM_AUDIT_ARCHIVE_v1.xlsx").write_bytes(audit_bio.getvalue())
+
+        prisma_bio = BytesIO()
+        with pd.ExcelWriter(prisma_bio, engine="openpyxl") as writer:
+            pd.DataFrame({"Study ID": ["SR001"]}).to_excel(writer, sheet_name="Master Screening", index=False)
+            pd.DataFrame([["Search Log"]]).to_excel(writer, sheet_name="Search Log", index=False, header=False)
+        (local_root / "Screening_PRISMA.xlsx").write_bytes(prisma_bio.getvalue())
+
+        other_bio = BytesIO()
+        with pd.ExcelWriter(other_bio, engine="openpyxl") as writer:
+            pd.DataFrame({"X": [1]}).to_excel(writer, sheet_name="Other", index=False)
+        (local_root / "notes.xlsx").write_bytes(other_bio.getvalue())
+
+        source = discover_local_excel_sources(local_root)
+        status = local_source_status(source)
+        assert source["available"] is True, source
+        assert Path(source["master"]).name == newest_master.name, source
+        assert Path(source["audit_archive"]).name == "PMM_AUDIT_ARCHIVE_v1.xlsx", source
+        assert Path(source["prisma"]).name == "Screening_PRISMA.xlsx", source
+        assert status["master"] == newest_master.name, status
+        assert len(source["inventory"]) == 5, source["inventory"]
+
+        local_entry = read_local_workbook(source["master"])
+        assert local_entry is not None
+        local_name, local_bytes, local_meta = local_entry
+        assert local_name == newest_master.name
+        local_frames, _ = load_master_workbook(local_bytes)
+        local_snap = master_snapshot(local_frames)
+        assert local_snap["decision"] == "DEC-009", local_snap
+        assert local_meta["source"] == "local-folder", local_meta
+
     with TemporaryDirectory() as td:
         saved = save_cached_master("changing_name_v99.xlsx", payload, cache_root=td)
         assert saved["filename"] == "changing_name_v99.xlsx"
