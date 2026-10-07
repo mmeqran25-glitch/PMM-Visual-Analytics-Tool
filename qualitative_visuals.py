@@ -1495,27 +1495,32 @@ def render_supervisor_analytical_journey(frames: Dict[str, pd.DataFrame]) -> Non
         ("Theme → Dimension", "DEC-498", "Higher-order merger after separate validation"),
     ]
 
-    tabs = st.tabs([f"{did} · {label}" for _, did, label in examples])
-    for tab, (level, did, label) in zip(tabs, examples):
-        with tab:
-            row = _preferred_decision_story(story, did)
-            if row is None:
-                st.info(f"{did} is not available in the current decision history.")
-                continue
-            st.markdown(f"#### {label}")
-            st.caption(f"{level} · {did}")
-            x, y, z = st.columns(3)
-            with x:
-                st.markdown("**What was questioned?**")
-                st.write(_txt(row.get("Problem_or_Reason")) or "Not explicitly recorded.")
-            with y:
-                st.markdown("**What decision was made?**")
-                st.write(_txt(row.get("Decision")) or "Not explicitly recorded.")
-            with z:
-                st.markdown("**What changed?**")
-                st.write(_txt(row.get("Result_or_Impact")) or "Not explicitly recorded.")
-            if _txt(row.get("Status")):
-                st.success(f"Recorded status: {_txt(row.get('Status'))}")
+    example_labels = [f"{did} · {label}" for _, did, label in examples]
+    selected_example = st.selectbox(
+        "Open one documented correction",
+        example_labels,
+        key="qual_journey_decision_example",
+    )
+    example_idx = example_labels.index(selected_example)
+    level, did, label = examples[example_idx]
+    row = _preferred_decision_story(story, did)
+    if row is None:
+        st.info(f"{did} is not available in the current decision history.")
+    else:
+        st.markdown(f"#### {label}")
+        st.caption(f"{level} · {did}")
+        x, y, z = st.columns(3)
+        with x:
+            st.markdown("**What was questioned?**")
+            st.write(_txt(row.get("Problem_or_Reason")) or "Not explicitly recorded.")
+        with y:
+            st.markdown("**What decision was made?**")
+            st.write(_txt(row.get("Decision")) or "Not explicitly recorded.")
+        with z:
+            st.markdown("**What changed?**")
+            st.write(_txt(row.get("Result_or_Impact")) or "Not explicitly recorded.")
+        if _txt(row.get("Status")):
+            st.success(f"Recorded status: {_txt(row.get('Status'))}")
 
     st.markdown("---")
     st.markdown("### 4 · How the structure evolved across major checkpoints")
