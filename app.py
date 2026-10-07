@@ -61,6 +61,12 @@ from researcher_cache import (
     load_cached_master,
     clear_cached_master,
 )
+from local_data_source import (
+    configured_local_data_dir,
+    discover_local_excel_sources,
+    read_local_workbook,
+    local_source_status,
+)
 from dimension_export import dimension_trace_workbook_bytes
 import bi_dashboard as bi_dashboard_module
 
@@ -79,7 +85,7 @@ if getattr(qualitative_visuals_module, "QUAL_VIS_VERSION", None) != EXPECTED_QUA
 render_qualitative_visuals = qualitative_visuals_module.render_qualitative_visuals
 
 
-APP_VERSION = "v0.17.4"
+APP_VERSION = "v0.18.0"
 st.set_page_config(page_title=f"رسالة ماجستير – معاذ عبدالقوي عباس مقران | {APP_VERSION}", page_icon="🎓", layout="wide")
 
 st.markdown(
@@ -387,6 +393,29 @@ def render_academic_footer() -> None:
 @st.cache_data(show_spinner=False)
 def cached_master_load(file_bytes: bytes):
     return load_master_workbook(file_bytes)
+
+
+@st.cache_data(show_spinner=False, ttl=10)
+def cached_local_source_scan(root_str: str):
+    return discover_local_excel_sources(root_str)
+
+
+@st.cache_data(show_spinner=False)
+def cached_local_workbook(path_str: str, modified_time: float):
+    # modified_time is intentionally part of the cache key so replacing a local
+    # workbook is detected without changing its filename.
+    return read_local_workbook(path_str)
+
+
+def _local_entry(source: dict, key: str):
+    path = source.get(key) if source else None
+    if not path:
+        return None
+    try:
+        modified = Path(path).stat().st_mtime
+    except OSError:
+        modified = 0.0
+    return cached_local_workbook(str(path), float(modified))
 
 
 @st.cache_data(show_spinner=False)
@@ -1481,6 +1510,9 @@ def main():
     private_key = _query_param("key", "")
     persistence_enabled = token_matches(private_key)
 
+    local_root = configured_local_data_dir()
+    local_sources = cached_local_source_scan(str(local_root))
+
     workspace_module = st.radio(
         "Research workspace module",
         ["PMM Visual Analytics", "PRISMA 2020"],
@@ -1491,16 +1523,42 @@ def main():
     st.divider()
 
     if workspace_module == "PRISMA 2020":
-        render_prisma_dashboard(persistence_enabled=persistence_enabled)
+        render_prisma_dashboard(
+            persistence_enabled=persistence_enabled,
+            local_prisma_entry=_local_entry(local_sources, "prisma"),
+            local_data_root=str(local_root),
+            local_folder_available=bool(local_sources.get("available")),
+        )
         render_academic_footer()
         return
 
     uploader_version = int(st.session_state.get("master_uploader_version", 0))
     cached_entry = load_cached_master() if persistence_enabled else None
+    local_master_entry = _local_entry(local_sources, "master")
+    local_archive_entry = _local_entry(local_sources, "audit_archive")
 
     with st.sidebar:
         render_sidebar_identity("مساحة الباحث · Researcher workspace")
         st.info("Researcher workspace")
+
+        local_status = local_source_status(local_sources)
+        if local_sources.get("available"):
+            st.success("Automatic local Excel source enabled")
+            st.caption(f"Folder: {local_status['root']}")
+            if local_status["master"]:
+                st.caption(f"Auto MASTER: {local_status['master']}")
+            if local_status["audit_archive"]:
+                st.caption(f"Auto Audit Archive: {local_status['audit_archive']}")
+            if local_status["prisma"]:
+                st.caption(f"Auto PRISMA: {local_status['prisma']}")
+            if st.button("Rescan local Excel folder", use_container_width=True, key="rescan_local_excel"):
+                cached_local_source_scan.clear()
+                cached_local_workbook.clear()
+                st.rerun()
+        else:
+            st.warning("Local Excel folder is not accessible from this Streamlit machine.")
+            st.caption(f"Configured folder: {local_status['root']}")
+            st.caption("This is expected on a cloud-hosted deployment; manual upload/cache remains available.")
 
         if persistence_enabled:
             st.success("Private refresh-safe cache enabled")
@@ -1543,35 +1601,48 @@ def main():
         )
         st.markdown("---")
         st.success("Read-only: no write-back to Excel")
-        st.caption("Upload any current compatible MASTER. The app is not tied to a filename or version.")
+        st.caption(
+            "Source priority: manual upload → automatic local folder → private cache. "
+            "The app is not tied to a workbook filename or version."
+        )
 
     master_name = None
     master_bytes = None
     uploaded_now = master_upload is not None
 
+    master_source = None
     if uploaded_now:
         master_name = master_upload.name
         master_bytes = master_upload.getvalue()
+        master_source = "Manual upload"
+    elif local_master_entry is not None:
+        master_name, master_bytes, _ = local_master_entry
+        master_source = "Automatic local folder"
     elif persistence_enabled and cached_entry is not None:
         master_name, master_bytes, _ = cached_entry
+        master_source = "Private cache"
 
     if master_bytes is None:
         st.markdown(
             '<div class="workspace-strip"><span class="label">Researcher workspace</span>'
-            '<span class="meta">Upload a compatible MASTER to begin</span></div>',
+            '<span class="meta">No compatible MASTER source detected</span></div>',
             unsafe_allow_html=True,
         )
         st.markdown(
             '<div class="readonly-banner"><b>Flexible researcher workflow:</b> Excel MASTER remains the analytical source of truth. '
-            'Upload the latest compatible MASTER here; its filename and version may change freely.</div>',
+            'The app first checks the configured local Excel folder, then falls back to private cache or manual upload.</div>',
             unsafe_allow_html=True,
         )
         if persistence_enabled:
             st.info(
-                "Upload the current PMM MASTER once. After it passes validation, browser Refresh will reuse the temporary private copy."
+                "No compatible MASTER was found in the local folder or cache. "
+                "You can upload one manually from the sidebar."
             )
         else:
-            st.info("Upload the current PMM MASTER workbook from the sidebar to begin.")
+            st.info(
+                "No compatible MASTER was found in the configured local folder. "
+                "You can upload one manually from the sidebar."
+            )
         render_academic_footer()
         return
 
@@ -1600,6 +1671,8 @@ def main():
         master_name,
         show_filename=True,
     )
+    if master_source:
+        st.caption(f"Workbook source: {master_source}")
 
     if persistence_enabled:
         st.caption(
@@ -1619,10 +1692,22 @@ def main():
 
     archive_frames = None
     archive_name = None
+    archive_bytes = None
+    archive_source = None
+
     if audit_archive_upload is not None:
+        archive_name = audit_archive_upload.name
+        archive_bytes = audit_archive_upload.getvalue()
+        archive_source = "Manual upload"
+    elif local_archive_entry is not None:
+        archive_name, archive_bytes, _ = local_archive_entry
+        archive_source = "Automatic local folder"
+
+    if archive_bytes is not None:
         try:
-            archive_name = audit_archive_upload.name
-            archive_frames, _ = load_audit_archive(audit_archive_upload.getvalue())
+            archive_frames, _ = load_audit_archive(archive_bytes)
+            if archive_source:
+                st.sidebar.caption(f"Audit Archive source: {archive_source}")
         except Exception as exc:
             st.sidebar.warning(f"Audit Archive could not be read: {exc}")
             archive_frames = None
