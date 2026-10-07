@@ -197,6 +197,29 @@ def build_workbook(version: str = "v99.123", decision: str = "DEC-999") -> bytes
 
 
 def main():
+    # One-click Windows launcher contract.
+    launcher_bat = Path("START_MOAZ_PLATFORM.bat")
+    launcher_ps1 = Path("start_moaz_platform.ps1")
+    shortcut_bat = Path("CREATE_DESKTOP_SHORTCUT.bat")
+    assert launcher_bat.exists()
+    assert launcher_ps1.exists()
+    assert shortcut_bat.exists()
+
+    launcher_text = launcher_ps1.read_text(encoding="utf-8")
+    assert "PMM_DATA_DIR" in launcher_text
+    assert "قاعدة بيانات منصةرسالة الماجسيتر الخاص بمعاذ" in launcher_text
+    assert "?view=researcher" in launcher_text
+    assert "requirements.sha256" in launcher_text
+    assert "streamlit" in launcher_text.lower()
+
+    for legacy in ["run_windows.bat", "setup_and_run_windows.bat"]:
+        legacy_text = Path(legacy).read_text(encoding="utf-8")
+        assert "START_MOAZ_PLATFORM.bat" in legacy_text
+
+    shortcut_text = shortcut_bat.read_text(encoding="utf-8")
+    assert "Moaz PMM Research Platform.lnk" in shortcut_text
+    assert "START_MOAZ_PLATFORM.bat" in shortcut_text
+
     # Academic branding is part of the public/researcher interface contract.
     app_source = Path("app.py").read_text(encoding="utf-8")
     assert "رسالة ماجستير للباحث – معاذ عبدالقوي عباس مقران" in app_source
