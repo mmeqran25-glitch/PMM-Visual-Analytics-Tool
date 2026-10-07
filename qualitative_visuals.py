@@ -16,7 +16,7 @@ from wordcloud import STOPWORDS, WordCloud
 
 from master_utils import (active_cluster_register, active_dimensions, active_themes, challenged_foc_table, cluster_members, current_mapping_rows, dimension_theme_map, provisional_cluster_summary, retired_themes, split_ids, unthemed_active_clusters)
 
-QUAL_VIS_VERSION = "v0.15.5"
+QUAL_VIS_VERSION = "v0.18.2-fast"
 
 PLOT_CONFIG = {
     "displaylogo": False,
@@ -339,37 +339,103 @@ def build_cooccurrence_figure(frames: Dict[str, pd.DataFrame], min_shared_studie
 
 
 def _wordcloud_records(frames: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Build unique current analytical text records for Word Cloud exploration."""
-    themes = _theme_lookup(frames)
-    records = []
-    seen = set()
-    for tid, trow in themes.items():
-        for cid in split_ids(trow.get("Included_Cluster_IDs"), "PCL"):
-            members = cluster_members(frames, cid)
-            if members.empty:
-                continue
-            for _, row in members.iterrows():
-                evidence_id = _txt(row.get("Evidence_ID"))
-                code_id = _txt(row.get("Code_ID"))
-                study_id = _txt(row.get("Study_ID"))
-                identity = evidence_id or code_id or f"{tid}|{cid}|{study_id}"
-                key = (tid, identity)
-                if key in seen:
-                    continue
-                seen.add(key)
-                records.append({
-                    "Dimension_ID": _txt(row.get("Dimension_ID")),
-                    "Theme_ID": tid,
-                    "Theme_Label": _txt(trow.get("Working_Theme_Label")),
-                    "Code_ID": code_id,
-                    "First_Order_Code": _txt(row.get("First_Order_Code")),
-                    "Original_Author_Term": _txt(row.get("Original_Author_Term")),
-                    "Meaning_Unit_Verbatim": _txt(row.get("Meaning_Unit_Verbatim")),
-                    "Evidence_ID": evidence_id,
-                    "Study_ID": study_id,
-                })
-    return pd.DataFrame(records)
+    """Build current analytical text records with vectorized joins.
 
+    Previous versions called cluster_members() once for every PCL, repeatedly
+    copying and merging the same large mapping/code/evidence tables. This
+    implementation builds the analytical index once per rerun with vectorized
+    joins, which is substantially faster for large MASTER workbooks.
+    """
+    maps = current_mapping_rows(frames).copy()
+    if maps.empty or not {"Cluster_ID", "Code_ID"}.issubset(maps.columns):
+        return pd.DataFrame()
+
+    if "Mapping_Status" in maps.columns:
+        status = maps["Mapping_Status"].fillna("").astype(str).str.strip()
+        maps = maps[status.isin(["Stable", "Provisional"])].copy()
+    if maps.empty:
+        return pd.DataFrame()
+
+    themes = active_themes(frames)
+    if themes.empty or "Theme_ID" not in themes.columns:
+        return pd.DataFrame()
+
+    cluster_theme_rows = []
+    theme_labels = {}
+    for _, tr in themes.iterrows():
+        tid = _txt(tr.get("Theme_ID"))
+        if not tid:
+            continue
+        theme_labels[tid] = _txt(tr.get("Working_Theme_Label"))
+        for cid in split_ids(tr.get("Included_Cluster_IDs"), "PCL"):
+            cluster_theme_rows.append({"Cluster_ID": cid, "Theme_ID": tid})
+
+    if not cluster_theme_rows:
+        return pd.DataFrame()
+
+    cluster_theme = pd.DataFrame(cluster_theme_rows).drop_duplicates()
+    base = maps.merge(cluster_theme, on="Cluster_ID", how="inner")
+    if base.empty:
+        return pd.DataFrame()
+
+    dmap = dimension_theme_map(frames)
+    if not dmap.empty and {"Dimension_ID", "Theme_ID"}.issubset(dmap.columns):
+        dim_theme = dmap[["Dimension_ID", "Theme_ID"]].drop_duplicates()
+        base = base.merge(dim_theme, on="Theme_ID", how="left")
+    elif "Dimension_ID" not in base.columns:
+        base["Dimension_ID"] = ""
+
+    codes = frames.get("05_First_Order_Coding", pd.DataFrame())
+    if not codes.empty and "Code_ID" in codes.columns:
+        code_keep = [
+            x for x in [
+                "Code_ID", "Evidence_ID", "Study_ID", "First_Order_Code",
+            ] if x in codes.columns
+        ]
+        code_small = codes[code_keep].drop_duplicates(subset=["Code_ID"], keep="last")
+        base = base.merge(code_small, on="Code_ID", how="left", suffixes=("", "_coding"))
+
+    if "Evidence_ID" not in base.columns and "Evidence_ID_coding" in base.columns:
+        base["Evidence_ID"] = base["Evidence_ID_coding"]
+    elif "Evidence_ID_coding" in base.columns:
+        blank = base["Evidence_ID"].isna() | base["Evidence_ID"].astype(str).str.strip().eq("")
+        base.loc[blank, "Evidence_ID"] = base.loc[blank, "Evidence_ID_coding"]
+
+    if "Study_ID" not in base.columns and "Study_ID_coding" in base.columns:
+        base["Study_ID"] = base["Study_ID_coding"]
+    elif "Study_ID_coding" in base.columns:
+        blank = base["Study_ID"].isna() | base["Study_ID"].astype(str).str.strip().eq("")
+        base.loc[blank, "Study_ID"] = base.loc[blank, "Study_ID_coding"]
+
+    ev = frames.get("04_Verbatim_Evidence", pd.DataFrame())
+    if not ev.empty and "Evidence_ID" in ev.columns and "Evidence_ID" in base.columns:
+        ev_keep = [
+            x for x in [
+                "Evidence_ID", "Original_Author_Term", "Meaning_Unit_Verbatim",
+            ] if x in ev.columns
+        ]
+        ev_small = ev[ev_keep].drop_duplicates(subset=["Evidence_ID"], keep="last")
+        base = base.merge(ev_small, on="Evidence_ID", how="left")
+
+    base["Theme_Label"] = base["Theme_ID"].map(theme_labels).fillna("")
+
+    for col in [
+        "Dimension_ID", "Theme_ID", "Theme_Label", "Code_ID", "First_Order_Code",
+        "Original_Author_Term", "Meaning_Unit_Verbatim", "Evidence_ID", "Study_ID",
+    ]:
+        if col not in base.columns:
+            base[col] = ""
+
+    # One source-near record per Theme/Evidence (or Theme/Code when evidence ID is absent).
+    identity = base["Evidence_ID"].fillna("").astype(str).str.strip()
+    fallback = base["Code_ID"].fillna("").astype(str).str.strip()
+    base["_Identity"] = identity.where(identity.ne(""), fallback)
+    base = base.drop_duplicates(subset=["Theme_ID", "_Identity"], keep="last")
+
+    return base[[
+        "Dimension_ID", "Theme_ID", "Theme_Label", "Code_ID", "First_Order_Code",
+        "Original_Author_Term", "Meaning_Unit_Verbatim", "Evidence_ID", "Study_ID",
+    ]].reset_index(drop=True)
 
 def build_wordcloud_frequencies(
     frames: Dict[str, pd.DataFrame],
@@ -444,6 +510,17 @@ def build_wordcloud_image(
     fig.savefig(buffer, format="png", bbox_inches="tight", pad_inches=0.05, dpi=160)
     plt.close(fig)
     return buffer.getvalue()
+
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def cached_wordcloud_image(
+    frequency_items: tuple[tuple[str, int], ...],
+    width: int = 1100,
+    height: int = 620,
+) -> bytes:
+    """Cache rendered PNGs by the small frequency table rather than the full MASTER."""
+    frequencies = {str(k): int(v) for k, v in frequency_items}
+    return build_wordcloud_image(frequencies, width=width, height=height)
 
 
 def build_theme_boundary_profile(frames: Dict[str, pd.DataFrame], theme_id: str) -> Dict[str, object]:
@@ -2011,10 +2088,8 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
         if not frequencies:
             st.warning("No usable text is available for the selected scope/source.")
         else:
-            image_bytes = build_wordcloud_image(frequencies)
-            st.image(image_bytes, use_container_width=True)
             c1, c2, c3 = st.columns(3)
-            c1.metric("Unique words shown", len(frequencies))
+            c1.metric("Unique words", len(frequencies))
             c2.metric("Source records", len(records))
             c3.metric("Total token frequency", sum(frequencies.values()))
 
@@ -2024,13 +2099,46 @@ def render_qualitative_visuals(frames: Dict[str, pd.DataFrame]) -> None:
                 )
                 .sort_values(["Frequency", "Word"], ascending=[False, True])
             )
-            st.download_button(
-                "Download Word Cloud PNG",
-                image_bytes,
-                "PMM_Word_Cloud.png",
-                "image/png",
-                use_container_width=True,
-            )
+
+            # Rendering the PNG is deliberately separated from filter changes.
+            # This keeps scope/source controls responsive on large workbooks.
+            freq_key = tuple((str(k), int(v)) for k, v in frequencies.items())
+            image_state_key = "qual_wordcloud_image_state"
+            current_signature = (selected_dimension, selected_theme, source, int(max_words), freq_key)
+
+            image_state = st.session_state.get(image_state_key)
+            image_bytes = b""
+            if isinstance(image_state, dict) and image_state.get("signature") == current_signature:
+                image_bytes = image_state.get("bytes", b"")
+
+            if st.button(
+                "Generate / refresh Word Cloud image",
+                key="qual_wordcloud_generate",
+                type="primary",
+                use_container_width=False,
+            ):
+                with st.spinner("Rendering Word Cloud image..."):
+                    image_bytes = cached_wordcloud_image(freq_key)
+                st.session_state[image_state_key] = {
+                    "signature": current_signature,
+                    "bytes": image_bytes,
+                }
+
+            if image_bytes:
+                st.image(image_bytes, use_container_width=True)
+                st.download_button(
+                    "Download Word Cloud PNG",
+                    image_bytes,
+                    "PMM_Word_Cloud.png",
+                    "image/png",
+                    use_container_width=True,
+                )
+            else:
+                st.caption(
+                    "Filters and frequency counts are ready. Generate the PNG only when you need the visual; "
+                    "this avoids expensive image regeneration after every click."
+                )
+
             st.download_button(
                 "Download Word Cloud frequency data (CSV)",
                 freq_df.to_csv(index=False).encode("utf-8-sig"),
