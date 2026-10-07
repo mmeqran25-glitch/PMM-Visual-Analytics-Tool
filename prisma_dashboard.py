@@ -1138,7 +1138,7 @@ def render_study_characteristics(metrics: dict, persistence_enabled: bool = Fals
     render_initial_vs_dimension_evidence(metrics, persistence_enabled=persistence_enabled)
 
 
-def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
+def render_prisma_dashboard(\n    persistence_enabled: bool = False,\n    local_prisma_entry=None,\n    local_data_root: str | None = None,\n    local_folder_available: bool = False,\n) -> None:
     st.markdown(PRISMA_CSS, unsafe_allow_html=True)
     st.markdown(
         '<section class="prisma-hero">'
@@ -1150,9 +1150,22 @@ def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
     )
     
     st.caption(
-        "Upload the current Screening / PRISMA workbook. This module does not modify the workbook "
-        "and does not alter the PMM dimension-derivation MASTER."
+        "This module reads the current Screening / PRISMA workbook in read-only mode and does not alter "
+        "the PMM dimension-derivation MASTER."
     )
+
+    if local_folder_available and local_prisma_entry is not None:
+        local_name, _, _ = local_prisma_entry
+        st.success(f"Automatic local PRISMA source detected: {local_name}")
+        if local_data_root:
+            st.caption(f"Local research database folder: {local_data_root}")
+    elif local_folder_available:
+        st.info("The local research database folder is accessible, but no PRISMA workbook signature was detected.")
+    elif local_data_root:
+        st.caption(
+            "The configured local research database folder is not accessible from this Streamlit machine. "
+            "This is expected for cloud hosting; upload/cache fallback remains available."
+        )
 
     uploader_version = int(st.session_state.get("prisma_uploader_version", 0))
     cached_entry = load_cached_prisma() if persistence_enabled else None
@@ -1193,18 +1206,24 @@ def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
 
     workbook_name = None
     file_bytes = None
+    source_label = None
     uploaded_now = uploaded is not None
 
     if uploaded_now:
         workbook_name = uploaded.name
         file_bytes = uploaded.getvalue()
+        source_label = "Manual upload"
+    elif local_prisma_entry is not None:
+        workbook_name, file_bytes, _ = local_prisma_entry
+        source_label = "Automatic local folder"
     elif persistence_enabled and cached_entry is not None:
         workbook_name, file_bytes, _ = cached_entry
+        source_label = "Private cache"
 
     if file_bytes is None:
         st.info(
-            "Upload the current screening workbook once. After it passes validation, "
-            "the app can reuse it automatically on refresh/reopen when private cache is enabled."
+            "No compatible PRISMA workbook was detected in the configured local folder or cache. "
+            "You can upload one manually above."
         )
         return
 
@@ -1223,7 +1242,10 @@ def render_prisma_dashboard(persistence_enabled: bool = False) -> None:
         st.success(f"Validated and cached: {workbook_name}")
 
     if workbook_name:
-        st.caption(f"Loaded PRISMA workbook: {workbook_name}")
+        st.caption(
+            f"Loaded PRISMA workbook: {workbook_name}"
+            + (f" · source: {source_label}" if source_label else "")
+        )
     
     ok = all(metrics["checks"].values())
     if ok:
