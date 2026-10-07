@@ -1138,7 +1138,12 @@ def render_study_characteristics(metrics: dict, persistence_enabled: bool = Fals
     render_initial_vs_dimension_evidence(metrics, persistence_enabled=persistence_enabled)
 
 
-def render_prisma_dashboard(\n    persistence_enabled: bool = False,\n    local_prisma_entry=None,\n    local_data_root: str | None = None,\n    local_folder_available: bool = False,\n) -> None:
+def render_prisma_dashboard(
+    persistence_enabled: bool = False,
+    local_prisma_entry=None,
+    local_data_root: str | None = None,
+    local_folder_available: bool = False,
+) -> None:
     st.markdown(PRISMA_CSS, unsafe_allow_html=True)
     st.markdown(
         '<section class="prisma-hero">'
