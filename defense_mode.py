@@ -169,8 +169,11 @@ def _row_text(row: pd.Series, cols: List[str] | None = None) -> str:
 def _find_matches(text: str, ids: set[str], limit: int = 12) -> List[str]:
     if not text or not ids:
         return []
-    u = text.upper()
-    found = [x for x in sorted(ids) if x in u]
+    found = []
+    for entity in sorted(ids):
+        pattern = rf"(?<![A-Za-z0-9-]){re.escape(entity)}(?![A-Za-z0-9-])"
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            found.append(entity)
     return found[:limit]
 
 
