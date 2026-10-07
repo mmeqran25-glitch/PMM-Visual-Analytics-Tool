@@ -1,0 +1,30 @@
+PMM Visual Analytics Tool — v0.18.1
+Date: 2026-10-07
+
+One-Click Windows Launcher
+
+New
+- Added START_MOAZ_PLATFORM.bat as the preferred Windows entrypoint.
+- Added start_moaz_platform.ps1 as the robust launcher engine.
+- Added CREATE_DESKTOP_SHORTCUT.bat to create a desktop shortcut named:
+  Moaz PMM Research Platform
+- The launcher sets PMM_DATA_DIR to the configured local research database folder on E: when no override is already set.
+- The launcher checks whether the local Excel database folder is accessible before starting.
+- First run creates .venv automatically.
+- Python dependencies install only when requirements.txt changes, using a SHA-256 marker.
+- Automatically finds a free Streamlit port from 8501–8510.
+- Opens the browser directly in researcher mode:
+  http://127.0.0.1:<port>/?view=researcher
+- Manual upload and private cache remain fallback mechanisms if the local folder is unavailable.
+- Legacy run_windows.bat and setup_and_run_windows.bat now delegate to START_MOAZ_PLATFORM.bat.
+- QUICK_START_AR.txt updated for automatic local-folder use.
+- The Excel database remains read-only.
+
+Testing
+- Smoke test verifies the one-click launcher files exist.
+- Smoke test verifies the launcher contains PMM_DATA_DIR, the configured Arabic research-folder path, researcher-mode URL, requirements hash control, and Streamlit startup.
+- Smoke test verifies both legacy Windows runners delegate to START_MOAZ_PLATFORM.bat.
+- Smoke test verifies the desktop shortcut creator points to the new launcher.
+- Existing automatic Excel-folder discovery and full platform smoke tests remain active.
+
+App version: v0.18.1
