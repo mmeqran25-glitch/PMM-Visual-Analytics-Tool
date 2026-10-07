@@ -8,6 +8,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from defense_mode import render_defense_mode, render_measurement_readiness
+
 from master_utils import (
     active_dimensions,
     active_themes,
@@ -15,7 +17,7 @@ from master_utils import (
     split_ids,
 )
 
-AUDIT_INTELLIGENCE_VERSION = "v0.17.0-audit"
+AUDIT_INTELLIGENCE_VERSION = "v0.17.1-audit"
 
 _ID_RE = re.compile(r"\b(?:DIM|THM|PCL|PMAP|CD|EV|SR)-[A-Za-z0-9-]+\b", re.IGNORECASE)
 _DEC_RE = re.compile(r"\bDEC-\d{3}\b", re.IGNORECASE)
@@ -738,7 +740,8 @@ def render_audit_intelligence(
         "Overview",
         "Decision Timeline",
         "Entity History",
-        "Dimension Defense",
+        "Defense Mode",
+        "Measurement Readiness",
         "Current vs Historical",
     ])
     with tabs[0]:
@@ -748,6 +751,8 @@ def render_audit_intelligence(
     with tabs[2]:
         _render_entity_history(frames, archive_frames)
     with tabs[3]:
-        _render_dimension_defense(frames)
+        render_defense_mode(frames, archive_frames=archive_frames)
     with tabs[4]:
+        render_measurement_readiness(frames)
+    with tabs[5]:
         _render_current_vs_historical(frames, archive_frames)
