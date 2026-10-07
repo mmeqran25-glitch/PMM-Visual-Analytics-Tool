@@ -1633,6 +1633,8 @@ def main():
 
     master_name = None
     master_bytes = None
+    master_meta = {}
+    master_signature = None
     uploaded_now = master_upload is not None
 
     master_source = None
@@ -1640,12 +1642,22 @@ def main():
         master_name = master_upload.name
         master_bytes = master_upload.getvalue()
         master_source = "Manual upload"
+        upload_id = getattr(master_upload, "file_id", None) or getattr(master_upload, "id", None) or "uploaded"
+        master_signature = f"manual:{upload_id}:{master_name}:{len(master_bytes)}"
     elif local_master_entry is not None:
-        master_name, master_bytes, _ = local_master_entry
+        master_name, master_bytes, master_meta = local_master_entry
         master_source = "Automatic local folder"
+        master_signature = (
+            f"local:{master_meta.get('path','')}:{master_meta.get('mtime',0)}:"
+            f"{master_meta.get('size_bytes', len(master_bytes))}"
+        )
     elif persistence_enabled and cached_entry is not None:
-        master_name, master_bytes, _ = cached_entry
+        master_name, master_bytes, master_meta = cached_entry
         master_source = "Private cache"
+        master_signature = (
+            f"cache:{master_meta.get('sha256','')}:{master_name}:"
+            f"{master_meta.get('size_bytes', len(master_bytes))}"
+        )
 
     if master_bytes is None:
         st.markdown(
@@ -1671,13 +1683,38 @@ def main():
         render_academic_footer()
         return
 
-    try:
-        frames, structure = cached_master_load(master_bytes)
-    except Exception as exc:
-        st.error(f"Could not read workbook: {exc}")
-        return
+    session_sig_key = "_pmm_loaded_master_signature"
+    session_frames_key = "_pmm_loaded_master_frames"
+    session_structure_key = "_pmm_loaded_master_structure"
+    session_issues_key = "_pmm_loaded_master_issues"
+    session_snapshot_key = "_pmm_loaded_master_snapshot"
 
-    issues = cached_master_validation(master_bytes)
+    if (
+        master_signature
+        and st.session_state.get(session_sig_key) == master_signature
+        and session_frames_key in st.session_state
+    ):
+        frames = st.session_state[session_frames_key]
+        structure = st.session_state[session_structure_key]
+        issues = st.session_state[session_issues_key]
+        snapshot = st.session_state[session_snapshot_key]
+    else:
+        try:
+            # Parse only once per workbook version for this browser session.
+            frames, structure = load_master_workbook(master_bytes)
+            issues = validate_master(frames)
+            snapshot = master_snapshot(frames)
+        except Exception as exc:
+            st.error(f"Could not read workbook: {exc}")
+            return
+
+        if master_signature:
+            st.session_state[session_sig_key] = master_signature
+            st.session_state[session_frames_key] = frames
+            st.session_state[session_structure_key] = structure
+            st.session_state[session_issues_key] = issues
+            st.session_state[session_snapshot_key] = snapshot
+
     if issues:
         st.error("This workbook does not match the expected PMM MASTER structure.")
         for issue in issues:
@@ -1690,8 +1727,6 @@ def main():
         meta = save_cached_master(master_name, master_bytes)
         cached_entry = (master_name, master_bytes, meta)
         cached_private_master_entry.clear()
-
-    snapshot = cached_master_snapshot(master_bytes)
     render_snapshot_header(
         snapshot,
         master_name,
@@ -1708,10 +1743,13 @@ def main():
     with st.sidebar:
         st.markdown("##### Supervisor snapshot")
         snapshot_state_key = "prepared_supervisor_snapshot"
-        snapshot_sig_key = "prepared_supervisor_snapshot_name"
+        snapshot_sig_key = "prepared_supervisor_snapshot_signature"
+        supervisor_signature = (
+            f"{master_signature}|{snapshot.get('version','')}|{snapshot.get('decision','')}"
+        )
         prepared = (
             st.session_state.get(snapshot_state_key)
-            if st.session_state.get(snapshot_sig_key) == master_name
+            if st.session_state.get(snapshot_sig_key) == supervisor_signature
             else None
         )
         if prepared is None:
@@ -1724,7 +1762,7 @@ def main():
                 with st.spinner("Preparing supervisor snapshot..."):
                     prepared = cached_supervisor_snapshot_bytes(master_bytes)
                 st.session_state[snapshot_state_key] = prepared
-                st.session_state[snapshot_sig_key] = master_name
+                st.session_state[snapshot_sig_key] = supervisor_signature
                 st.rerun()
         else:
             st.download_button(
