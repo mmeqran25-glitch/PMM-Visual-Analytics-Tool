@@ -19,7 +19,7 @@ from master_utils import (
 
 AUDIT_INTELLIGENCE_VERSION = "v0.17.1-audit"
 
-_ID_RE = re.compile(r"\b(?:DIM|THM|PCL|PMAP|CD|EV|SR)-[A-Za-z0-9-]+\b", re.IGNORECASE)
+_ID_RE = re.compile(r"\b(?:(?:DIM|THM|PCL|PMAP|CD|EV)-[A-Za-z0-9-]+|SR\d{3,})\b", re.IGNORECASE)
 _DEC_RE = re.compile(r"\bDEC-\d{3}\b", re.IGNORECASE)
 
 
@@ -188,7 +188,7 @@ def _entity_type(entity_id: str) -> str:
         return "First-Order Code / Coding record"
     if x.startswith("EV-"):
         return "Evidence"
-    if re.match(r"^SR\\d{3,}$", x):
+    if re.match(r"^SR\d{3,}$", x):
         return "Source / Study record"
     return "Entity"
 
@@ -485,7 +485,7 @@ def _render_entity_history(
     if prefix == "PMAP/CD":
         filtered = [x for x in ids if x.startswith("PMAP-") or x.startswith("CD-")]
     elif prefix == "SR":
-        filtered = [x for x in ids if re.match(r"^SR\\d{3,}$", x)]
+        filtered = [x for x in ids if re.match(r"^SR\d{3,}$", x)]
     elif prefix != "All":
         filtered = [x for x in ids if x.startswith(prefix + "-")]
 
